@@ -18,7 +18,7 @@ export function createAgentSession(opts: AgentSessionOptions): AgentSession {
 
   const baseOptions = {
     includePartialMessages: true,
-    env: { ...process.env, ...readSettingsEnv(cwd) } as Record<string, string>,
+    env: { ...process.env, ...readSettingsEnv(cwd) },
     permissionMode: "bypassPermissions" as const,
     systemPrompt: config.agent.systemPrompt
       ? config.agent.systemPrompt
