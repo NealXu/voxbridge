@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+config.local.json
+*.log
+# 含 API token 的本地设置，永不入库
+.claude/
+.superpowers/
