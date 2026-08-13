@@ -1,6 +1,8 @@
 import io
 from unittest import mock
 
+import numpy as np
+
 from stt_worker import main
 
 
@@ -15,7 +17,15 @@ def test_ready_then_noise_on_stop():
         "--model-dir", r"D:\Models\faster-whisper-large-v3",
         "--language", "zh",
     ]
-    with mock.patch.object(main.sys, "stdin", in_buf), \
+    # 单元测试只验证协议编排：mock 掉 2.9GB 模型加载与真实麦克风，
+    # 真实模型/麦克风由 integration 测试与手动冒烟覆盖。
+    fake_engine = mock.MagicMock()
+    fake_engine.transcribe.return_value = ("", 0)
+    fake_recorder = mock.MagicMock()
+    fake_recorder.stop.return_value = np.zeros(0, dtype="float32")
+    with mock.patch.object(main, "WhisperEngine", return_value=fake_engine), \
+         mock.patch.object(main, "Recorder", return_value=fake_recorder), \
+         mock.patch.object(main.sys, "stdin", in_buf), \
          mock.patch.object(main.sys, "stdout", out), \
          mock.patch.object(main.sys, "argv", worker_argv):
         main.main()

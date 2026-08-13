@@ -8,6 +8,9 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from stt_worker.protocol import decode, encode
+from stt_worker.recorder import Recorder
+from stt_worker.vad import has_voice
+from stt_worker.whisper_engine import WhisperEngine
 
 
 def emit(msg: dict) -> None:
@@ -43,20 +46,35 @@ def main() -> None:
     parser.add_argument("--language", default="zh")
     args = parser.parse_args()
 
-    # 骨架阶段：用占位实现，Task 6 替换为真实录音 + Whisper。
+    # 启动时一次性加载 Whisper 模型（首次数秒、数 GB 内存），加载完成才发 ready。
+    engine = WhisperEngine(args.model_dir)
+    engine.load()
     emit({"type": "ready"})
-    recording = False
+
+    recorder: Recorder | None = None
     for line in sys.stdin:
         line = line.strip()
         if not line:
             continue
         msg = decode(line)
         if msg["type"] == "start":
-            recording = True
+            recorder = Recorder()
+            recorder.start()
             emit({"type": "recording"})
         elif msg["type"] == "stop":
-            recording = False
-            emit({"type": "noise"})  # 占位：骨架阶段恒回 noise
+            audio = None
+            if recorder is not None:
+                audio = recorder.stop()
+                recorder = None
+            if audio is None or not has_voice(audio):
+                # 空录音 / 无有效语音（静音或短促噪声）→ 不识别，回 noise。
+                emit({"type": "noise"})
+            else:
+                text, duration_ms = engine.transcribe(audio, language=args.language)
+                if text:
+                    emit({"type": "result", "text": text, "duration_ms": duration_ms})
+                else:
+                    emit({"type": "noise"})
         elif msg["type"] == "quit":
             break
 
