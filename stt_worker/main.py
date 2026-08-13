@@ -16,7 +16,27 @@ def emit(msg: dict) -> None:
     sys.stdout.flush()
 
 
+def _force_utf8(stream) -> None:
+    """强制文本流以 UTF-8 输出，并关闭换行转换。
+
+    Windows 上 sys.stdout 指向管道时，默认是 locale 编码（中文系统为 cp936/gbk），
+    Node 端按 UTF-8 读取会乱码；文本模式还会把 \\n 转成 \\r\\n。这里统一重配为
+    UTF-8 + 原样换行，保证 JSONL 字节可被 Node 可靠解析。
+    """
+    reconfigure = getattr(stream, "reconfigure", None)
+    if reconfigure is None:
+        return  # 无 reconfigure（如测试里的 StringIO / pytest 捕获）则跳过
+    try:
+        reconfigure(encoding="utf-8", newline="")
+    except (ValueError, OSError, UnicodeError):
+        pass  # 已配好或不可重配时保持现状
+
+
 def main() -> None:
+    # 管道安全：Node 以 UTF-8 读取 worker 输出（见 _force_utf8）。
+    _force_utf8(sys.stdout)
+    _force_utf8(sys.stderr)
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="large-v3")
     parser.add_argument("--model-dir", default=r"D:\Models\faster-whisper-large-v3")

@@ -22,3 +22,16 @@ def test_ready_then_noise_on_stop():
     lines = out.getvalue().strip().splitlines()
     assert lines[0] == '{"type": "ready"}'
     assert any("noise" in l for l in lines)
+
+
+def test_emit_pipe_output_is_utf8():
+    # 模拟 Windows 管道：TextIOWrapper 默认按 locale 编码（中文系统 cp936/gbk）。
+    # 若 _force_utf8 未生效，中文会被写成 gbk 字节，按 UTF-8 解码会失败。
+    raw = io.BytesIO()
+    pipe_out = io.TextIOWrapper(raw, encoding="gbk")
+    with mock.patch.object(main.sys, "stdout", pipe_out):
+        main._force_utf8(pipe_out)
+        main.emit({"type": "result", "text": "你好", "duration_ms": 1})
+    pipe_out.flush()
+    assert raw.getvalue().decode("utf-8") == \
+        '{"type": "result", "text": "你好", "duration_ms": 1}\n'
