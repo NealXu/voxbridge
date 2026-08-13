@@ -1,6 +1,6 @@
 {
   "stt": { "plugin": "whisper", "model": "large-v3", "model_dir": "D:\\Models\\faster-whisper-large-v3", "language": "zh", "python_path": ".venv\\Scripts\\python.exe" },
   "trigger": { "mode": "push-to-talk", "key": "F9", "global": true },
-  "agent": { "resume": true, "confirmDangerous": true, "systemPrompt": "" },
+  "agent": { "resume": true, "systemPrompt": "" },
   "ui": { "showRecognition": true }
 }

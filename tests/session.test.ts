@@ -19,7 +19,7 @@ function makeCapturingQuery(messages: any[]) {
 }
 
 function makeConfig() {
-  return { stt: {} as any, trigger: {} as any, agent: { resume: true, confirmDangerous: true, systemPrompt: "" }, ui: {} as any };
+  return { stt: {} as any, trigger: {} as any, agent: { resume: true, systemPrompt: "" }, ui: {} as any };
 }
 
 test("流式文本触发 onTextDelta，success 返回会话 id", async () => {
