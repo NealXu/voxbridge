@@ -34,6 +34,53 @@ def test_ready_then_noise_on_stop():
     assert any("noise" in l for l in lines)
 
 
+def _run_worker(lines, fake_engine, fake_recorder):
+    in_buf = io.StringIO(lines)
+    out = io.StringIO()
+    worker_argv = [
+        "stt_worker/main.py",
+        "--model", "large-v3",
+        "--model-dir", r"D:\Models\faster-whisper-large-v3",
+        "--language", "zh",
+    ]
+    with mock.patch.object(main, "WhisperEngine", return_value=fake_engine), \
+         mock.patch.object(main, "Recorder", return_value=fake_recorder), \
+         mock.patch.object(main.sys, "stdin", in_buf), \
+         mock.patch.object(main.sys, "stdout", out), \
+         mock.patch.object(main.sys, "argv", worker_argv):
+        main.main()
+    return out.getvalue().strip().splitlines()
+
+
+def test_transcribe_error_emits_error_not_crash():
+    fake_engine = mock.MagicMock()
+    fake_engine.transcribe.side_effect = RuntimeError("boom")
+    fake_recorder = mock.MagicMock()
+    # 有语音（rms 0.5 > NOISE_MAX_RMS），确保走到 transcribe 分支。
+    fake_recorder.stop.return_value = np.full(32000, 0.5, dtype="float32")
+    lines = _run_worker(
+        '{"type": "start"}\n{"type": "stop"}\n{"type": "quit"}\n',
+        fake_engine, fake_recorder,
+    )
+    assert lines[0] == '{"type": "ready"}'
+    # 转写抛异常 → 发 error，而不是让 worker 崩溃。
+    assert '{"type": "error", "message": "boom"}' in lines
+
+
+def test_double_start_closes_previous_recorder():
+    fake_engine = mock.MagicMock()
+    fake_recorder = mock.MagicMock()
+    fake_recorder.stop.return_value = np.zeros(0, dtype="float32")
+    lines = _run_worker(
+        '{"type": "start"}\n{"type": "start"}\n{"type": "stop"}\n{"type": "quit"}\n',
+        fake_engine, fake_recorder,
+    )
+    # 两次 start：double-start guard 先关掉旧录音，stop 分支再关第二次 → stop 共 2 次。
+    assert fake_recorder.start.call_count == 2
+    assert fake_recorder.stop.call_count == 2
+    assert '{"type": "recording"}' in lines
+
+
 def test_emit_pipe_output_is_utf8():
     # 模拟 Windows 管道：TextIOWrapper 默认按 locale 编码（中文系统 cp936/gbk）。
     # 若 _force_utf8 未生效，中文会被写成 gbk 字节，按 UTF-8 解码会失败。

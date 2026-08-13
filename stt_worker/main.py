@@ -56,27 +56,36 @@ def main() -> None:
         line = line.strip()
         if not line:
             continue
-        msg = decode(line)
-        if msg["type"] == "start":
-            recorder = Recorder()
-            recorder.start()
-            emit({"type": "recording"})
-        elif msg["type"] == "stop":
-            audio = None
-            if recorder is not None:
-                audio = recorder.stop()
-                recorder = None
-            if audio is None or not has_voice(audio):
-                # 空录音 / 无有效语音（静音或短促噪声）→ 不识别，回 noise。
-                emit({"type": "noise"})
-            else:
-                text, duration_ms = engine.transcribe(audio, language=args.language)
-                if text:
-                    emit({"type": "result", "text": text, "duration_ms": duration_ms})
-                else:
+        try:
+            msg = decode(line)
+            if msg["type"] == "start":
+                # 防御：若上一个 start 未 stop，先关掉旧录音，避免录音流双开。
+                if recorder is not None:
+                    recorder.stop()
+                    recorder = None
+                recorder = Recorder()
+                recorder.start()
+                emit({"type": "recording"})
+            elif msg["type"] == "stop":
+                audio = None
+                if recorder is not None:
+                    audio = recorder.stop()
+                    recorder = None
+                if audio is None or not has_voice(audio):
+                    # 空录音 / 无有效语音（静音或短促噪声）→ 不识别，回 noise。
                     emit({"type": "noise"})
-        elif msg["type"] == "quit":
-            break
+                else:
+                    text, duration_ms = engine.transcribe(audio, language=args.language)
+                    if text:
+                        emit({"type": "result", "text": text, "duration_ms": duration_ms})
+                    else:
+                        emit({"type": "noise"})
+            elif msg["type"] == "quit":
+                break
+        except Exception as e:
+            # 任何单条消息处理异常（录音开/停失败、转写 OOM 等）都不应杀死 worker：
+            # 发 error 消息让上层可见，然后继续处理下一条。
+            emit({"type": "error", "message": str(e)})
 
 
 if __name__ == "__main__":
