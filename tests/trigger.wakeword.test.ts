@@ -3,6 +3,11 @@ import assert from "node:assert/strict";
 import { createWakeWordTrigger } from "../src/trigger/wakeword.js";
 import type { TriggerCallbacks } from "../src/trigger/types.js";
 
+/** node:test 的 mock.fn() 在运行时返回带 .mock 属性的函数，但 TriggerCallbacks 类型未声明它。 */
+type MockFn = (() => void) & {
+  mock: { calls: unknown[][] };
+};
+
 describe("createWakeWordTrigger", () => {
   it("should call onStartListening when wake event is received", async () => {
     // Mock STT client that emits wake event
@@ -32,7 +37,7 @@ describe("createWakeWordTrigger", () => {
     wakeCallbacks.forEach(cb => cb());
 
     // Should call onStartListening
-    assert.equal(callbacks.onStartListening.mock.calls.length, 1);
+    assert.equal((callbacks.onStartListening as MockFn).mock.calls.length, 1);
 
     trigger.stop();
   });
@@ -66,7 +71,7 @@ describe("createWakeWordTrigger", () => {
     // After wake, should eventually call onStopListening
     // This happens after transcription completes
     // For simplicity in this test, we just verify the structure
-    assert.equal(callbacks.onStartListening.mock.calls.length, 1);
+    assert.equal((callbacks.onStartListening as MockFn).mock.calls.length, 1);
 
     trigger.stop();
   });

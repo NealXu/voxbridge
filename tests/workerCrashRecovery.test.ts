@@ -40,7 +40,7 @@ test("WorkerSttClient 的 onExit 在正常 dispose 后不触发", async () => {
 test("WorkerSttClient 的 onExit 在 ready 前的意外退出时触发", async () => {
   const stdout = fakeStdout();
   let exitCalled = false;
-  let exitReason: string | null = null;
+  let exitReason: string = "";
   const client = new WorkerSttClient(stdout, () => {}, undefined, {
     onExit: (reason) => {
       exitCalled = true;

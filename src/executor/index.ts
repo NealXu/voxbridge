@@ -56,7 +56,12 @@ export { CostTracker } from "./costTracker.js";
 export { ExecutorRegistry } from "./registry.js";
 export type { RegistryEntry, RegistryLogger, ExecutorRegistryOptions, AcquireOptions } from "./registry.js";
 export { PersistentClaudeExecutor } from "./persistentExecutor.js";
-export type { PersistentExecutorLike, PersistentExecutorOptions } from "./persistentExecutor.js";
+export type {
+  PersistentExecutorLike,
+  PersistentExecutorOptions,
+  PersistentQueryImpl,
+  TurnHandle,
+} from "./persistentExecutor.js";
 export { MAX_TEAMMATES, validateTeamSize, updateTeamState } from "./teamState.js";
 export { teamObserverHook, mapInputToTeamEvent } from "./teamHooks.js";
 export type { TeamObserverHook } from "./teamHooks.js";

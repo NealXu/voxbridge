@@ -1,13 +1,13 @@
 # voxcode 用户指南
 
 - **日期**：2026-08-14
-- **版本**：0.1.0
+- **版本**：0.2.0
 
 ---
 
 ## 1. 项目简介
 
-voxcode 是一个语音驱动的 Claude Code CLI。你只需按住 F9 说话，本地 Whisper 将语音转为文本，再经 Agent SDK 送入 AI 编码助手执行。全程静默，无语音回复。
+voxcode 是一个语音驱动的 Claude Code CLI。你只需按住 F9 说话，本地 Whisper 将语音转为文本，再经 claude-agent-sdk 启动并控制本地 Claude Code 实例执行（v0.2.0 架构）——因此具备完整编码能力（读写文件、运行命令、调试、Agent Teams 并行协作）。全程静默，无语音回复。
 
 **一句话**：用嘴说话代替打字，让 Claude Code 帮你写代码。
 
@@ -190,6 +190,23 @@ npm start
   // ─── UI 模式 ───
   "ui": {
     "mode": "console"               // "console"（ANSI）| "ink"（React TUI）
+  },
+
+  // ─── 执行器 ───
+  "executor": {
+    "mode": "sdk",                  // "sdk"（Agent SDK）| "pty"（伪终端）
+    "persistent": true,             // 持久进程池，跨轮复用 cc 进程
+    "idleTimeoutMs": 1800000,       // 空闲超时回收（1800000ms = 30 分钟）
+    "maxConcurrent": 5,             // 最大并发执行数
+    "maxTeammates": 10              // 单个团队队友上限（≤10）
+  },
+
+  // ─── 本地 Claude Code ───
+  "claude": {
+    "path": "claude",                          // cc 可执行文件路径
+    "settingsPath": "~/.claude/settings.json", // 设置文件（env 等）
+    "appendSystemPrompt": "",                  // 追加系统提示词
+    "model": "claude-opus-5"                   // 模型名（可选，默认走 settings）
   }
 }
 ```
@@ -207,6 +224,30 @@ npm start
 - **自动续接**：`agent.resume: true` 时，每次启动自动续接上次会话
 - **会话持久化**：session ID 保存在 `~/.voxcode-session.json`
 - **新建会话**：删除 `~/.voxcode-session.json` 后重启
+
+### 6.3 团队协作（Agent Teams）
+
+直接对着麦克风说：**「创建一个 5 人团队，帮我并行重构项目」**。voxcode 会创建一支队友团队，把任务拆成多块并行推进，每个队友独立工作、互不阻塞。
+
+```
+┌─ Agent Teams（voxcode-3fa5c2f1-…）────────┐
+│  队友                                     │
+│    ● 队友-1  工作中   重构 api/client.ts  │
+│    ● 队友-2  工作中   重构 api/server.ts  │
+│    ● 队友-3  空闲                         │
+│    ● 队友-4  工作中   重构 lib/auth.ts    │
+│    ● 队友-5  空闲                         │
+│                                           │
+│  任务                                     │
+│    ✓ t-001  重构 api/client.ts   已完成   │
+│    ○ t-002  重构 api/server.ts   进行中   │
+└───────────────────────────────────────────┘
+```
+
+- **上限**：单个团队最多 **10 名队友**（`executor.maxTeammates`），超出会被拒绝并提示上限
+- **UI 面板**：显示每个队友的**名字 + 状态**（工作中 / 空闲），以及团队**任务列表**（进行中 / 已完成）
+- **依赖**：`executor.persistent: true`（默认开启）保持队友跨轮存活；`executor.mode` 为 `sdk` 时经 Agent SDK 控制
+- **清理**：任务完成后团队自行清理；空闲超时（`idleTimeoutMs`）后进程被回收
 
 ---
 
