@@ -2,7 +2,7 @@
 
 - **日期**：2026-08-14
 - **目标版本**：0.2.0
-- **关联文档**：`architecture-v2-design.md`（设计）、`architecture.md`（架构）
+- **关联文档**：`architecture.md`（架构 + 设计，已整合）
 - **状态**：待实施
 
 ---
