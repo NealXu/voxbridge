@@ -1,9 +1,9 @@
 {
-  "name": "voice-cc",
+  "name": "voxcode",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Voice-controlled Claude Code CLI: push-to-talk speech-to-text frontend for Claude Code.",
+  "description": "Voice-controlled Claude Code CLI: press-to-talk, transcribe locally with Whisper, drive Claude Code by voice.",
   "scripts": {
     "start": "node --import tsx src/main.ts",
     "test": "node --import tsx --test tests/*.test.ts",
