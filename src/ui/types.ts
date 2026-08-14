@@ -1,3 +1,5 @@
+import type { ToolCallInfo, CompletionStats } from "../executor/types.js";
+
 /**
  * UI 抽象接口
  * 定义所有 UI 层必须实现的方法
@@ -14,6 +16,21 @@ export interface UI {
 
   /** 打印工具调用行 */
   printToolLine(text: string): void;
+
+  /** 打印工具调用（如 "▶ Write src/foo.py"） */
+  printToolCall(tool: ToolCallInfo): void;
+
+  /** 打印工具执行结果（成功/失败） */
+  printToolResult(tool: string, result: string): void;
+
+  /** 打印文件变更（create/modify/delete） */
+  printFileChange(file: string, action: "create" | "modify" | "delete"): void;
+
+  /** 打印命令执行（如 "$ npm test"） */
+  printCommand(cmd: string, output?: string): void;
+
+  /** 打印执行完成统计（耗时 / 成本 / 轮数） */
+  printCompletion(stats: CompletionStats): void;
 
   /** 打印错误消息 */
   printError(text: string): void;

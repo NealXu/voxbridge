@@ -11,6 +11,11 @@ describe("UI 抽象接口", () => {
       printRecognition: (_text: string) => {},
       printAssistantDelta: (_text: string) => {},
       printToolLine: (_text: string) => {},
+      printToolCall: (_tool: { name: string; input?: unknown }) => {},
+      printToolResult: (_tool: string, _result: string) => {},
+      printFileChange: (_file: string, _action: "create" | "modify" | "delete") => {},
+      printCommand: (_cmd: string, _output?: string) => {},
+      printCompletion: (_stats: { durationMs: number; costUsd?: number; turns: number }) => {},
       printError: (_text: string) => {},
       printWarning: (_text: string) => {},
       clearStatusLine: () => {},
@@ -23,6 +28,11 @@ describe("UI 抽象接口", () => {
     assert.ok(typeof mockUI.printRecognition === "function");
     assert.ok(typeof mockUI.printAssistantDelta === "function");
     assert.ok(typeof mockUI.printToolLine === "function");
+    assert.ok(typeof mockUI.printToolCall === "function");
+    assert.ok(typeof mockUI.printToolResult === "function");
+    assert.ok(typeof mockUI.printFileChange === "function");
+    assert.ok(typeof mockUI.printCommand === "function");
+    assert.ok(typeof mockUI.printCompletion === "function");
     assert.ok(typeof mockUI.printError === "function");
     assert.ok(typeof mockUI.printWarning === "function");
     assert.ok(typeof mockUI.clearStatusLine === "function");
