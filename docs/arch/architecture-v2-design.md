@@ -2,7 +2,7 @@
 
 - **日期**：2026-08-14
 - **版本**：0.2.0
-- **状态**：设计讨论
+- **状态**：设计已确认，待实施
 
 ---
 
@@ -474,7 +474,7 @@ export class StreamProcessor {
 
 ## 6. UI 增强
 
-### 6.1 新增显示内容
+### 6.1 新增显示内容（已确认：完整版）
 
 | 元素 | 显示时机 | 说明 |
 |---|---|---|
@@ -482,6 +482,7 @@ export class StreamProcessor {
 | **文件变更** | Write/Edit 完成 | 显示文件路径和变更摘要 |
 | **命令输出** | Bash 完成 | 显示命令和关键输出 |
 | **耗时/成本** | result 事件 | 显示耗时和 API 成本 |
+| **队友状态** | Team 事件 | 显示 teammates + tasks 面板 |
 
 ### 6.2 UI 接口扩展
 
@@ -499,6 +500,7 @@ export interface UI {
   printFileChange(file: string, action: 'create' | 'modify' | 'delete'): void;
   printCommand(cmd: string, output?: string): void;
   printCompletion(stats: CompletionStats): void;
+  printTeamState(team: TeamState): void;
 }
 
 export interface ToolCallInfo {
@@ -511,6 +513,25 @@ export interface CompletionStats {
   durationMs: number;
   costUsd?: number;
   turns: number;
+}
+
+export interface TeamState {
+  name?: string;
+  teammates: TeamMember[];
+  tasks: TeamTask[];
+}
+
+export interface TeamMember {
+  name: string;
+  status: 'idle' | 'working';
+  lastSubject?: string;
+}
+
+export interface TeamTask {
+  taskId: string;
+  subject: string;
+  status: 'in_progress' | 'completed';
+  teammate?: string;
 }
 ```
 
@@ -580,13 +601,13 @@ export interface CompletionStats {
 
 ### 9.1 阶段划分
 
-| 阶段 | 内容 | 预计时间 |
-|---|---|---|
-| **P0** | 基础 SDK 模式实现 | 2 天 |
-| **P1** | 会话持久化 + UI 增强 | 1 天 |
-| **P2** | 错误处理 + 崩溃恢复 | 1 天 |
-| **P3** | PTY 模式（可选） | 1 天 |
-| **P4** | 持久进程池（可选） | 1 天 |
+| 阶段 | 内容 | 预计时间 | 状态 |
+|---|---|---|---|
+| **P0** | 基础 SDK 模式实现 | 2 天 | 必做 |
+| **P1** | 会话持久化 + UI 增强（完整版） | 1 天 | 必做 |
+| **P2** | 错误处理 + 崩溃恢复 | 1 天 | 必做 |
+| **P3** | PTY 模式 | 1 天 | 可选（按需） |
+| **P4** | 持久进程池 + Agent Teams | 2 天 | **必做** |
 
 ### 9.2 P0 详细任务
 
@@ -596,6 +617,47 @@ export interface CompletionStats {
 4. **修改 src/session/ 使用新 executor**
 5. **编写单元测试**
 6. **集成测试验证**
+
+### 9.3 P4 详细任务（Agent Teams）
+
+Agent Teams 需要持久进程池支持，让队友跨轮存活：
+
+1. **实现 ExecutorRegistry** — 管理 cc 进程池，按 chatId 映射
+2. **实现 PersistentClaudeExecutor** — 长期运行的 cc 进程，支持跨轮输入队列
+3. **启用 Agent Teams 环境变量** — `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`
+4. **Team 事件透传** — TaskCreated / TaskCompleted / TeammateIdle 钩子
+5. **UI 显示** — 队友状态面板（teammates + tasks）
+6. **测试** — 多 agent 并行任务、teammate 状态更新
+
+**持久进程池关键设计：**
+
+```typescript
+// src/executor/registry.ts
+class ExecutorRegistry {
+  private executors = new Map<string, PersistentClaudeExecutor>();
+  private idleTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+
+  async acquire(chatId: string, options: AcquireOptions): Promise<PersistentClaudeExecutor> {
+    // 已存在 → 刷新空闲计时器并返回
+    // 不存在 → 创建新实例（spawn cc 进程 + 输入队列）
+  }
+
+  async release(chatId: string, reason: string): Promise<void> {
+    // 优雅关闭：finish 输入队列 → 等待流结束 → kill 兜底
+  }
+
+  async shutdownAll(reason: string): Promise<void> {
+    // 遍历所有实例释放
+  }
+}
+```
+
+**Agent Teams 环境变量：**
+
+```
+CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1    # 启用
+teammateMode: 'in-process'                # 无终端时强制进程内模式
+```
 
 ---
 
@@ -612,29 +674,21 @@ export interface CompletionStats {
 
 ## 11. 讨论点
 
-### 11.1 待确认问题
+### 11.1 已确认决策（2026-08-14）
 
-1. **PTY 模式是否必要？**
-   - SDK 模式已覆盖大部分场景
-   - PTY 仅用于交互式菜单（AskUserQuestion）
-   - 建议：P0 跳过，P3 按需实现
+| 决策 | 结论 | 影响 |
+|---|---|---|
+| **Agent Teams** | ✅ 需要 | P4 持久进程池升级为必做 |
+| **UI 增强** | ✅ 完整版（工具调用 + 文件变更 + 成本） | P1 范围明确 |
+| **配置项命名** | ✅ 合理（`executor` / `claude`） | 无需变更 |
+| **PTY 模式** | 保留为可选 | 按需实现 |
+| **/background 后台任务** | 依赖持久进程池 | P4 一并支持 |
 
-2. **持久进程池优先级？**
-   - 优点：支持 Agent Teams、后台任务
-   - 缺点：增加复杂度、内存占用
-   - 建议：P4 实现，P0-2 用单进程模式
+### 11.2 待后续确认
 
-3. **UI 增强程度？**
-   - 最小：只显示文本 delta
-   - 完整：工具调用、文件变更、成本
-   - 建议：P1 实现完整版
-
-### 11.2 需要反馈
-
-- [ ] 是否需要支持 Agent Teams？
-- [ ] 是否需要 `/background` 后台任务？
-- [ ] UI 显示粒度偏好？
-- [ ] 配置项命名是否合理？
+- [ ] 是否需要 `/background` 后台任务支持？
+- [ ] 队友数量上限？
+- [ ] 进程池空闲回收策略？
 
 ---
 
