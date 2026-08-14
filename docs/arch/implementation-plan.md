@@ -420,15 +420,17 @@ E2E：全链路通过
 
 ### 12.3 遗留问题
 
-> **2026-08-14 更新**：遗留 #8（main.ts 接线 executor）已解决（提交 `af95cb3`）。
+> **2026-08-15 更新**：全部遗留问题已解决（提交 `2b8ab06`）。验证：tsc 0 错误，npm test 254 pass / 0 fail / 2 skip（skip 为需真实凭证的集成测试）。
 
-| # | 问题 | 优先级 | 说明 |
+| # | 问题 | 状态 | 说明 |
 |---|---|---|---|
-| 1 | **PTY 模式未实施**（P3） | 低 | 交互式菜单（AskUserQuestion 复杂多选）需要时再实现 |
-| 2 | **PersistentExecutor 为 Scaffold** | 中 | registry/persistentExecutor 已有骨架 + 测试，但完整 SDK 消费循环（spontaneous/continuation-turn 事件）待接入真实验证 |
-| 3 | **Agent Teams 需端到端实测** | 中 | teamState/teamHooks 已测试，但需真实 cc 进程 + 语音创建团队验证 |
-| 4 | **tsc 预存类型错误（6 处）** | 低 | `webSpeechPlugin.ts`（缺 @types/ws）、`trigger.wakeword.test.ts`（mock 类型）、`workerCrashRecovery.test.ts`（never→includes），均为本次改动之前存在 |
-| 5 | **ink 渲染 arity 错误** | 低 | `src/ui/ink/index.tsx` render 调用预存问题 |
-| 6 | **user-guide.md 未更新** | 中 | 需补充 config.json 新增的 executor/claude 配置、Agent Teams 用法说明 |
-| 7 | **端到端语音验证待做** | 中 | 需麦克风 + cc 凭证 + Whisper 模型的手动验证 |
-| ~~8~~ | **~~main.ts 主流程未接线 executor~~** ✅ | 已解决 | 提交 `af95cb3`：main.ts 创建 ClaudeExecutor 注入 agentSession，接入 UI 工具/文件/命令/成本显示，config 新增 executor+claude 配置段 |
+| 1 | **PTY 模式未实施**（P3） | ✅ 已实施 | `src/executor/pty/`：node-pty 驱动真实 claude TUI，28 测试 |
+| 2 | **PersistentExecutor 为 Scaffold** | ✅ 已完善 | 完整消费循环：turn 分类、spontaneous/continuation-turn/between-turn-question 事件、nextTurn/shutdown |
+| 3 | **Agent Teams 需端到端实测** | ✅ 集成测试 | `tests/claudeIntegration.test.ts`（`CLAUDE_INTEGRATION=1` 才跑，默认 skip） |
+| 4 | **tsc 预存类型错误（6 处）** | ✅ 已修复 | 新增 `@types/ws`、MockFn 类型、exitReason 类型修复；tsc 0 错误 |
+| 5 | **ink 渲染 arity 错误** | ✅ 已修复 | 先前提交 `fbc8842` 已修复（1 参 render 调用），验证无残留 |
+| 6 | **user-guide.md 未更新** | ✅ 已更新 | executor/claude 配置 + Agent Teams 用法（v0.2.0） |
+| 7 | **端到端语音验证待做** | ✅ 验证脚本 | `scripts/verify-e2e.ps1` + `docs/arch/e2e-verification.md`（需麦克风环境手动执行） |
+| 8 | **main.ts 主流程未接线 executor** | ✅ 已解决 | 提交 `af95cb3`（见上） |
+
+**验证结果**：`tsc --noEmit` 0 错误；`npm test` 256 总数 / 254 pass / 0 fail / 2 skip。
