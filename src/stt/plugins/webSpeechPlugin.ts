@@ -27,6 +27,7 @@ export class WebSpeechPlugin implements SttPlugin {
   private pendingResolve: ((result: SttResult) => void) | null = null;
   private pendingReject: ((error: Error) => void) | null = null;
   private isRecording = false;
+  private browserOpened = false;
 
   constructor(config: WebSpeechConfig) {
     this.config = {
@@ -48,6 +49,11 @@ export class WebSpeechPlugin implements SttPlugin {
 
       this.wsServer.on("connection", (ws) => {
         this.wsClient = ws;
+        // 首次 WebSocket 连接时打开浏览器（而非服务器启动时）
+        if (!this.browserOpened && this.config.openBrowser) {
+          this.browserOpened = true;
+          this.openBrowser(`http://localhost:${this.config.port}`);
+        }
         ws.on("message", (data) => {
           this.handleWsMessage(data.toString());
         });
@@ -57,9 +63,6 @@ export class WebSpeechPlugin implements SttPlugin {
       });
 
       this.server.listen(this.config.port, () => {
-        if (this.config.openBrowser) {
-          this.openBrowser(`http://localhost:${this.config.port}`);
-        }
         resolve();
       });
 
@@ -103,6 +106,7 @@ export class WebSpeechPlugin implements SttPlugin {
   async dispose(): Promise<void> {
     this.pendingResolve = null;
     this.pendingReject = null;
+    this.browserOpened = false;
 
     if (this.wsClient) {
       this.wsClient.close();
