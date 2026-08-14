@@ -1,127 +1,121 @@
+import React from "react";
 import type { UI } from "../types.js";
+import { App } from "./App.js";
+import { setState, getState, appendOutputLine } from "./store.js";
+
+// ink 是 ESM-only，必须用 import() 加载
+let inkModule: typeof import("ink") | null = null;
+let loadPromise: Promise<typeof import("ink") | null> | null = null;
+
+function loadInk(): Promise<typeof import("ink") | null> {
+  if (loadPromise) return loadPromise;
+  loadPromise = import("ink")
+    .then((mod) => { inkModule = mod; return mod; })
+    .catch(() => { inkModule = null; return null; });
+  return loadPromise;
+}
+
+// 立即开始加载
+loadInk();
 
 /**
- * 创建 ink UI 实现
- *
- * 注意：ink 是可选依赖，如果没有安装，会回退到 console 模式
- * 这是一个简化实现，主要展示 ink 架构
+ * 创建 ink TUI 实现（异步）
+ * 等待 ink 加载完成后渲染 React 组件
  */
-export function createInkUI(): UI {
-  // ink 是可选依赖，动态加载
-  // 如果加载失败，回退到 console
-  let inkAvailable = false;
-  try {
-    // 检查 ink 是否可用
-    require.resolve("ink");
-    inkAvailable = true;
-  } catch {
-    // ink 未安装，使用简化实现
-  }
+export async function createInkUI(): Promise<UI> {
+  const ink = await loadInk();
 
-  if (!inkAvailable) {
-    // 回退到 console 输出
+  if (!ink) {
     return createFallbackUI();
   }
 
-  // ink 可用时的实现
-  // 注意：完整的 ink 实现需要 React 组件和 render
-  // 这里提供基本的接口实现
+  ink.render(React.createElement(App), {
+    stdout: process.stdout,
+    exitOnCtrlC: false,
+  });
+
   return {
     printStatus(text: string): void {
-      // ink 模式下，状态显示在状态栏组件
-      // 简化实现：直接输出
-      process.stdout.write(`[ink] ${text}\n`);
+      setState("status", text);
     },
 
     printRecognition(text: string): void {
-      process.stdout.write(`[ink] 🎤 ${text}\n`);
+      setState("recognition", `\u{1F3A4} ${text}`);
     },
 
     printAssistantDelta(text: string): void {
-      process.stdout.write(text);
+      const lines = getState<string[]>("outputLines");
+      if (lines.length === 0) {
+        appendOutputLine(text);
+      } else {
+        const last = lines[lines.length - 1];
+        const updated = [...lines.slice(0, -1), last + text];
+        setState("outputLines", updated);
+      }
     },
 
     printToolLine(text: string): void {
-      process.stdout.write(`[ink] └ ${text}\n`);
+      appendOutputLine(`└ ${text}`);
     },
 
     printError(text: string): void {
-      process.stdout.write(`[ink] ✖ ${text}\n`);
+      appendOutputLine(`✖ ${text}`);
+      setState("status", `错误: ${text}`);
     },
 
     printWarning(text: string): void {
-      process.stdout.write(`[ink] ⚠ ${text}\n`);
+      appendOutputLine(`⚠ ${text}`);
     },
 
     clearStatusLine(): void {
-      process.stdout.write("\r\x1b[K");
+      setState("recognition", "");
     },
 
     printDownloadProgress(progress: number, message: string): void {
-      const bar = "█".repeat(Math.floor(progress / 5)) + "░".repeat(20 - Math.floor(progress / 5));
-      process.stdout.write(`[ink] [${bar}] ${progress}% ${message}\n`);
+      const pct = Math.round(progress * 100);
+      setState("status", `⬇ 下载中 ${pct}% ${message}`);
     },
 
     async promptEditRecognition(text: string): Promise<string | null> {
-      // ink 的输入组件较复杂，简化实现
-      // 完整实现应使用 ink 的 useInput 或 TextInput 组件
-      process.stdout.write(`[ink] 编辑识别文本: ${text}\n`);
+      setState("recognition", `\u{1F3A4} ${text} (Enter 发送)`);
       return text;
     },
   };
 }
 
-/**
- * 回退 UI（当 ink 未安装时）
- */
 function createFallbackUI(): UI {
-  const RESET = "\x1b[0m";
   const YELLOW = "\x1b[33m";
-  const DIM = "\x1b[2m";
+  const RESET = "\x1b[0m";
 
   return {
     printStatus(text: string): void {
-      process.stdout.write(`\r\x1b[K${YELLOW}[fallback] ${text}${RESET}`);
+      process.stdout.write(`\r\x1b[K${YELLOW}[ink-fallback] ${text}${RESET}`);
     },
-
     printRecognition(text: string): void {
-      process.stdout.write(`\r[fallback] 🎤 ${text}\n`);
+      process.stdout.write(`\r\x1b[32m[ink-fallback] \u{1F3A4} ${text}\x1b[0m\n`);
     },
-
     printAssistantDelta(text: string): void {
       process.stdout.write(text);
     },
-
     printToolLine(text: string): void {
-      process.stdout.write(`\n${DIM}└ ${text}${RESET}\n`);
+      process.stdout.write(`\n\x1b[2m└ ${text}\x1b[0m\n`);
     },
-
     printError(text: string): void {
-      process.stdout.write(`\r\x1b[31m[fallback] ✖ ${text}\x1b[0m\n`);
+      process.stdout.write(`\r\x1b[31m[ink-fallback] ✖ ${text}\x1b[0m\n`);
     },
-
     printWarning(text: string): void {
-      process.stdout.write(`\r${YELLOW}[fallback] ⚠ ${text}${RESET}\n`);
+      process.stdout.write(`\n\x1b[33m[ink-fallback] ⚠ ${text}\x1b[0m\n`);
     },
-
     clearStatusLine(): void {
       process.stdout.write("\r\x1b[K");
     },
-
     printDownloadProgress(progress: number, message: string): void {
-      process.stdout.write(`\r[fallback] ${progress}% ${message}`);
+      const pct = Math.round(progress * 100);
+      process.stdout.write(`\r\x1b[K${YELLOW}[ink-fallback] ⬇ ${pct}% ${message}${RESET}`);
     },
-
     async promptEditRecognition(text: string): Promise<string | null> {
-      process.stdout.write(`\r[fallback] 编辑: ${text}\n`);
+      process.stdout.write(`\r\x1b[32m[ink-fallback] \u{1F3A4} ${text}\x1b[0m\n`);
       return text;
     },
   };
 }
-
-// 重新导出 React 组件（仅在 ink 可用时使用）
-// 这些导出是可选的，当 ink 未安装时不会被使用
-export { StatusBar } from "./StatusBar.js";
-export { RecognitionPanel } from "./RecognitionPanel.js";
-export { OutputPanel } from "./OutputPanel.js";
-export { App } from "./App.js";
