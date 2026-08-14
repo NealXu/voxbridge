@@ -6,11 +6,72 @@ const YELLOW = "\x1b[33m";
 const CYAN = "\x1b[36m";
 
 import type { UI } from "./types.js";
+import type { ToolCallInfo, CompletionStats } from "../executor/types.js";
+
+/** 判断工具返回文本是否表示失败 */
+function isFailedResult(result: string): boolean {
+  return /error|failed|✖/i.test(result) || result.startsWith("Error");
+}
+
+/** 将工具输入整理为单行摘要 */
+function summarizeInput(input: unknown): string {
+  if (typeof input === "string") return input;
+  try {
+    return JSON.stringify(input);
+  } catch {
+    return String(input);
+  }
+}
 
 export function printStatus(text: string): void { process.stdout.write(`\r\x1b[K${YELLOW}${text}${RESET}`); }
 export function printRecognition(text: string): void { process.stdout.write(`\r${GREEN}🎤 ${text}${RESET}\n`); }
 export function printAssistantDelta(text: string): void { process.stdout.write(text); }
 export function printToolLine(text: string): void { process.stdout.write(`\n${DIM}└ ${text}${RESET}\n`); }
+
+export function printToolCall(tool: ToolCallInfo): void {
+  process.stdout.write(`\n${CYAN}▶ ${tool.name}${RESET}\n`);
+  if (tool.input !== undefined && tool.input !== null) {
+    process.stdout.write(`${DIM}  ${summarizeInput(tool.input)}${RESET}\n`);
+  }
+}
+
+export function printToolResult(tool: string, result: string): void {
+  const failed = isFailedResult(result);
+  const color = failed ? RED : GREEN;
+  const mark = failed ? "✗" : "✓";
+  const resultText = result ? ` ${DIM}${result}${RESET}` : "";
+  process.stdout.write(`  ${color}${mark} ${tool}${RESET}${resultText}\n`);
+}
+
+const FILE_CHANGE_ICONS: Record<"create" | "modify" | "delete", { icon: string; color: string }> = {
+  create: { icon: "+", color: GREEN },
+  modify: { icon: "✎", color: YELLOW },
+  delete: { icon: "✖", color: RED },
+};
+
+export function printFileChange(file: string, action: "create" | "modify" | "delete"): void {
+  const { icon, color } = FILE_CHANGE_ICONS[action];
+  process.stdout.write(`  ${color}${icon} ${file}${RESET}\n`);
+}
+
+export function printCommand(cmd: string, output?: string): void {
+  process.stdout.write(`${DIM}$ ${cmd}${RESET}\n`);
+  if (output) {
+    process.stdout.write(`${output}\n`);
+  }
+}
+
+export function printCompletion(stats: CompletionStats): void {
+  const cost = stats.costUsd !== undefined ? `$${stats.costUsd.toFixed(4)}` : "-";
+  const summary = `耗时 ${stats.durationMs}ms / 成本 ${cost} / ${stats.turns} 轮`;
+  const width = 32;
+  const pad = Math.max(0, width - summary.length);
+  const left = Math.floor(pad / 2);
+  const right = pad - left;
+  process.stdout.write(`\n${DIM}┌${"─".repeat(width)}┐${RESET}\n`);
+  process.stdout.write(`${DIM}│${RESET}${" ".repeat(left)}${summary}${" ".repeat(right)}${DIM}│${RESET}\n`);
+  process.stdout.write(`${DIM}└${"─".repeat(width)}┘${RESET}\n`);
+}
 export function printError(text: string): void { process.stdout.write(`\r${RED}✖ ${text}${RESET}\n`); }
 export function printWarning(text: string): void { process.stdout.write(`\n${YELLOW}⚠ ${text}${RESET}\n`); }
 export function clearStatusLine(): void { process.stdout.write("\r\x1b[K"); }
@@ -100,6 +161,11 @@ export function createConsoleUI(): UI {
     printRecognition,
     printAssistantDelta,
     printToolLine,
+    printToolCall,
+    printToolResult,
+    printFileChange,
+    printCommand,
+    printCompletion,
     printError,
     printWarning,
     clearStatusLine,

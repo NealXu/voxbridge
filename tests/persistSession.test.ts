@@ -1,10 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, readFile, access } from "node:fs/promises";
+import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadSessionId, saveSessionId, clearSessionId } from "../src/session/persistSession.js";
 import { createAgentSession } from "../src/session/agentSession.js";
+import { ClaudeExecutor } from "../src/executor/claudeExecutor.js";
+import type { SDKMessage } from "../src/executor/types.js";
+import type { Query } from "@anthropic-ai/claude-agent-sdk";
 
 test("loadSessionId: 文件不存在返回 undefined", async () => {
   const tempDir = await mkdtemp(join(tmpdir(), "voxcode-test-"));
@@ -108,7 +111,7 @@ test("agentSession: 启动时加载已保存的 sessionId", async () => {
     saveSessionId(sessionFile, "saved-session-xyz");
 
     // 创建 session，应加载已保存的 sessionId
-    const q = await createCapturingQuery([
+    const { executor, calls } = createCapturingExecutor([
       { type: "system", subtype: "init", session_id: "saved-session-xyz" },
       { type: "result", subtype: "success", session_id: "saved-session-xyz" },
     ]);
@@ -118,14 +121,14 @@ test("agentSession: 启动时加载已保存的 sessionId", async () => {
       config,
       cwd: process.cwd(),
       callbacks: { onTextDelta: () => {}, onToolStart: () => {}, onStatus: () => {} },
-      queryImpl: q.impl as any,
+      executor,
       sessionFile,  // 新增参数
     });
 
     await session.send("first");
 
     // 第一次调用应该使用保存的 sessionId
-    assert.equal(q.calls[0].options.resume, "saved-session-xyz");
+    assert.equal(calls[0].options.resume, "saved-session-xyz");
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
@@ -136,7 +139,7 @@ test("agentSession: send 成功后保存 sessionId", async () => {
   const sessionFile = join(tempDir, "session.json");
 
   try {
-    const q = await createCapturingQuery([
+    const { executor, resume } = createCapturingExecutor([
       { type: "system", subtype: "init", session_id: "new-session-456" },
       { type: "result", subtype: "success", session_id: "new-session-456" },
     ]);
@@ -145,7 +148,7 @@ test("agentSession: send 成功后保存 sessionId", async () => {
       config: makeConfig(),
       cwd: process.cwd(),
       callbacks: { onTextDelta: () => {}, onToolStart: () => {}, onStatus: () => {} },
-      queryImpl: q.impl as any,
+      executor,
       sessionFile,
     });
 
@@ -164,7 +167,7 @@ test("agentSession: reset() 后清除 sessionId 文件", async () => {
   const sessionFile = join(tempDir, "session.json");
 
   try {
-    const q = await createCapturingQuery([
+    const { executor } = createCapturingExecutor([
       { type: "system", subtype: "init", session_id: "session-789" },
       { type: "result", subtype: "success", session_id: "session-789" },
     ]);
@@ -173,7 +176,7 @@ test("agentSession: reset() 后清除 sessionId 文件", async () => {
       config: makeConfig(),
       cwd: process.cwd(),
       callbacks: { onTextDelta: () => {}, onToolStart: () => {}, onStatus: () => {} },
-      queryImpl: q.impl as any,
+      executor,
       sessionFile,
     });
 
@@ -189,16 +192,30 @@ test("agentSession: reset() 后清除 sessionId 文件", async () => {
   }
 });
 
-// Helper functions
-async function createCapturingQuery(messages: any[]) {
+// Helper: create a ClaudeExecutor backed by a captured query, recording
+// the SDK options (prompt/options) so tests can assert on resume etc.
+function createCapturingExecutor(messages: SDKMessage[]) {
   const calls: Array<{ prompt: string; options: any }> = [];
-  const impl = async function* (params: any) {
-    calls.push({ prompt: params.prompt, options: params.options });
-    for (const m of messages) yield m;
+  const resume: string[] = [];
+  const mockQuery = (params: {
+    prompt: string | AsyncIterable<unknown>;
+    options?: { resume?: string };
+  }) => {
+    calls.push({ prompt: typeof params.prompt === "string" ? params.prompt : "", options: params.options });
+    if (params.options?.resume) {
+      resume.push(params.options.resume);
+    }
+    return {
+      async *[Symbol.asyncIterator]() {
+        for (const m of messages) yield m;
+      },
+      close: () => {},
+    } as unknown as Query;
   };
-  return { impl, calls };
+  const executor = new ClaudeExecutor(mockQuery as any);
+  return { executor, calls, resume };
 }
 
 function makeConfig() {
-  return { stt: {} as any, trigger: {} as any, agent: { resume: true, systemPrompt: "" }, ui: {} as any };
+  return { stt: {} as any, trigger: {} as any, agent: { resume: true, systemPrompt: "", confirmDangerous: false }, ui: {} as any };
 }

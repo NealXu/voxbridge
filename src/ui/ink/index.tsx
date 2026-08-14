@@ -1,5 +1,6 @@
 import React from "react";
 import type { UI } from "../types.js";
+import type { CompletionStats, ToolCallInfo } from "../../executor/types.js";
 import { App } from "./App.js";
 import { setState, getState, appendOutputLine } from "./store.js";
 
@@ -29,10 +30,7 @@ export async function createInkUI(): Promise<UI> {
     return createFallbackUI();
   }
 
-  ink.render(React.createElement(App), {
-    stdout: process.stdout,
-    exitOnCtrlC: false,
-  });
+  ink.render(React.createElement(App));
 
   return {
     printStatus(text: string): void {
@@ -56,6 +54,30 @@ export async function createInkUI(): Promise<UI> {
 
     printToolLine(text: string): void {
       appendOutputLine(`└ ${text}`);
+    },
+
+    printToolCall(tool: ToolCallInfo): void {
+      appendOutputLine(`▶ ${tool.name}`);
+    },
+
+    printToolResult(tool: string, result: string): void {
+      appendOutputLine(`  ${tool}`);
+      if (result) appendOutputLine(`    ${result}`);
+    },
+
+    printFileChange(file: string, action: "create" | "modify" | "delete"): void {
+      const icons = { create: "+", modify: "✎", delete: "✖" } as const;
+      appendOutputLine(`  ${icons[action]} ${file}`);
+    },
+
+    printCommand(cmd: string, output?: string): void {
+      appendOutputLine(`$ ${cmd}`);
+      if (output) appendOutputLine(output);
+    },
+
+    printCompletion(stats: CompletionStats): void {
+      const cost = stats.costUsd !== undefined ? `$${stats.costUsd.toFixed(4)}` : "-";
+      appendOutputLine(`⏱ 耗时 ${stats.durationMs}ms / 成本 ${cost} / ${stats.turns} 轮`);
     },
 
     printError(text: string): void {
@@ -99,6 +121,24 @@ function createFallbackUI(): UI {
     },
     printToolLine(text: string): void {
       process.stdout.write(`\n\x1b[2m└ ${text}\x1b[0m\n`);
+    },
+    printToolCall(tool: ToolCallInfo): void {
+      process.stdout.write(`\n\x1b[36m[ink-fallback] ▶ ${tool.name}\x1b[0m\n`);
+    },
+    printToolResult(_tool: string, result: string): void {
+      process.stdout.write(`\x1b[2m[ink-fallback] ${result}\x1b[0m\n`);
+    },
+    printFileChange(file: string, action: "create" | "modify" | "delete"): void {
+      const icons = { create: "+", modify: "✎", delete: "✖" } as const;
+      process.stdout.write(`\x1b[2m[ink-fallback] ${icons[action]} ${file}\x1b[0m\n`);
+    },
+    printCommand(cmd: string, output?: string): void {
+      process.stdout.write(`\x1b[2m[ink-fallback] $ ${cmd}\x1b[0m\n`);
+      if (output) process.stdout.write(`\x1b[2m[ink-fallback] ${output}\x1b[0m\n`);
+    },
+    printCompletion(stats: CompletionStats): void {
+      const cost = stats.costUsd !== undefined ? `$${stats.costUsd.toFixed(4)}` : "-";
+      process.stdout.write(`\x1b[2m[ink-fallback] ⏱ 耗时 ${stats.durationMs}ms / 成本 ${cost} / ${stats.turns} 轮\x1b[0m\n`);
     },
     printError(text: string): void {
       process.stdout.write(`\r\x1b[31m[ink-fallback] ✖ ${text}\x1b[0m\n`);
