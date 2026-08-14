@@ -3,18 +3,24 @@ import type { SettingSource } from "@anthropic-ai/claude-agent-sdk";
 import { readSettingsEnv } from "../env.js";
 import type { Config } from "../config.js";
 import type { AgentSession, SendResult, SessionCallbacks } from "./types.js";
+import { isDangerousTool } from "./dangerousTools.js";
+import { loadSessionId, saveSessionId, clearSessionId } from "./persistSession.js";
 
 export interface AgentSessionOptions {
   config: Config;
   cwd: string;
   callbacks: SessionCallbacks;
   queryImpl?: typeof defaultQuery;
+  sessionFile?: string;
 }
 
 export function createAgentSession(opts: AgentSessionOptions): AgentSession {
   const { config, cwd, callbacks } = opts;
   const queryImpl = opts.queryImpl ?? defaultQuery;
-  let lastSessionId: string | undefined;
+  const sessionFile = opts.sessionFile;
+
+  // Load persisted sessionId at startup
+  let lastSessionId: string | undefined = sessionFile ? loadSessionId(sessionFile) : undefined;
 
   const baseOptions = {
     includePartialMessages: true,
@@ -47,11 +53,19 @@ export function createAgentSession(opts: AgentSessionOptions): AgentSession {
             if (e.type === "content_block_delta" && e.delta.type === "text_delta") {
               callbacks.onTextDelta(e.delta.text);
             } else if (e.type === "content_block_start" && e.content_block.type === "tool_use") {
-              callbacks.onToolStart(e.content_block.name);
+              const toolName = e.content_block.name;
+              callbacks.onToolStart(toolName);
+              if (config.agent.confirmDangerous && isDangerousTool(toolName) && callbacks.onDangerousTool) {
+                callbacks.onDangerousTool(toolName);
+              }
             }
           } else if (msg.type === "result") {
             if (msg.subtype === "success") {
               lastSessionId = msg.session_id ?? sessionId;
+              // Persist sessionId after successful send
+              if (sessionFile && lastSessionId) {
+                saveSessionId(sessionFile, lastSessionId);
+              }
               callbacks.onStatus("idle");
               return { ok: true, sessionId: lastSessionId };
             }
@@ -68,6 +82,10 @@ export function createAgentSession(opts: AgentSessionOptions): AgentSession {
     },
     reset(): void {
       lastSessionId = undefined;
+      // Clear persisted sessionId file
+      if (sessionFile) {
+        clearSessionId(sessionFile);
+      }
     },
   };
 }

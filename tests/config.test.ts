@@ -24,6 +24,27 @@ test("解析合法配置", () => {
   });
 });
 
+test("confirmDangerous 默认为 true", () => {
+  withConfig({
+    stt: { model: "large-v3", model_dir: "D:/Models/x", language: "zh", python_path: "py" },
+    trigger: { key: "F9", global: true },
+  }, (p) => {
+    const c = loadConfig(p);
+    assert.equal(c.agent.confirmDangerous, true);
+  });
+});
+
+test("confirmDangerous 可显式设为 false", () => {
+  withConfig({
+    stt: { model: "large-v3", model_dir: "D:/Models/x", language: "zh", python_path: "py" },
+    trigger: { key: "F9", global: true },
+    agent: { confirmDangerous: false },
+  }, (p) => {
+    const c = loadConfig(p);
+    assert.equal(c.agent.confirmDangerous, false);
+  });
+});
+
 test("非法 JSON 报错", () => {
   const dir = mkdtempSync(join(tmpdir(), "vcc-"));
   const p = join(dir, "config.json");

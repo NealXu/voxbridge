@@ -138,3 +138,69 @@ test("错误结果时 onStatus 依次为 sending → error", async () => {
   assert.equal(r.ok, false);
   assert.deepEqual(statuses, ["sending", "error"]);
 });
+
+test("危险工具在 confirmDangerous=true 时触发 onDangerousTool 回调", async () => {
+  const dangerousTools: string[] = [];
+  const session = createAgentSession({
+    config: { ...makeConfig(), agent: { ...makeConfig().agent, confirmDangerous: true } },
+    cwd: process.cwd(),
+    callbacks: {
+      onTextDelta: () => {},
+      onToolStart: () => {},
+      onStatus: () => {},
+      onDangerousTool: (name) => dangerousTools.push(name),
+    },
+    queryImpl: fakeQuery([
+      { type: "system", subtype: "init", session_id: "sess-1" },
+      { type: "stream_event", event: { type: "content_block_start", content_block: { type: "tool_use", name: "Write" } } },
+      { type: "result", subtype: "success", session_id: "sess-1" },
+    ]) as any,
+  });
+  const r = await session.send("x");
+  assert.equal(r.ok, true);
+  assert.deepEqual(dangerousTools, ["Write"]);
+});
+
+test("安全工具不触发 onDangerousTool 回调", async () => {
+  const dangerousTools: string[] = [];
+  const session = createAgentSession({
+    config: { ...makeConfig(), agent: { ...makeConfig().agent, confirmDangerous: true } },
+    cwd: process.cwd(),
+    callbacks: {
+      onTextDelta: () => {},
+      onToolStart: () => {},
+      onStatus: () => {},
+      onDangerousTool: (name) => dangerousTools.push(name),
+    },
+    queryImpl: fakeQuery([
+      { type: "system", subtype: "init", session_id: "sess-1" },
+      { type: "stream_event", event: { type: "content_block_start", content_block: { type: "tool_use", name: "Read" } } },
+      { type: "result", subtype: "success", session_id: "sess-1" },
+    ]) as any,
+  });
+  const r = await session.send("x");
+  assert.equal(r.ok, true);
+  assert.deepEqual(dangerousTools, []);
+});
+
+test("confirmDangerous=false 时不触发 onDangerousTool", async () => {
+  const dangerousTools: string[] = [];
+  const session = createAgentSession({
+    config: { ...makeConfig(), agent: { ...makeConfig().agent, confirmDangerous: false } },
+    cwd: process.cwd(),
+    callbacks: {
+      onTextDelta: () => {},
+      onToolStart: () => {},
+      onStatus: () => {},
+      onDangerousTool: (name) => dangerousTools.push(name),
+    },
+    queryImpl: fakeQuery([
+      { type: "system", subtype: "init", session_id: "sess-1" },
+      { type: "stream_event", event: { type: "content_block_start", content_block: { type: "tool_use", name: "Write" } } },
+      { type: "result", subtype: "success", session_id: "sess-1" },
+    ]) as any,
+  });
+  const r = await session.send("x");
+  assert.equal(r.ok, true);
+  assert.deepEqual(dangerousTools, []);
+});

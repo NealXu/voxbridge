@@ -2,18 +2,17 @@ import { GlobalKeyboardListener } from "node-global-key-listener";
 import { feedTerminalInput } from "./terminalKeys.js";
 import type { Trigger, TriggerCallbacks } from "./types.js";
 import type { Config } from "../config.js";
+import { createWakeWordTrigger, type WakeWordSttClient } from "./wakeword.js";
 
 export * from "./types.js";
 
-/** 全局热键 hold-to-talk：任意应用按下 F9 开始，松开结束。依赖 node-global-key-listener 原生模块。 */
+/** 全局热键 hold-to-talk：按下 F9 开始，松开结束。依赖 node-global-key-listener 原生模块。 */
 export function createGlobalTrigger(key: string): Trigger {
   let cb: TriggerCallbacks | null = null;
   let listener: GlobalKeyboardListener | null = null;
   let listening = false;
 
-  // Esc cancel: listen for Esc key during recording
   const onStdinData = (chunk: Buffer) => {
-    // Check for Esc byte (0x1b)
     if (chunk.includes(0x1b)) {
       listening = false;
       cleanupStdin();
@@ -40,7 +39,6 @@ export function createGlobalTrigger(key: string): Trigger {
         if (e.state === "DOWN") {
           listening = true;
           cb!.onStartListening();
-          // Enable Esc cancel when recording starts
           setupStdin();
         } else {
           if (listening) {
@@ -94,6 +92,12 @@ export function createTerminalTrigger(): Trigger {
   };
 }
 
-export function createTrigger(trigger: Config["trigger"]): Trigger {
+export function createTrigger(trigger: Config["trigger"], sttClient?: WakeWordSttClient): Trigger {
+  if (trigger.wakeWord?.enabled) {
+    if (!sttClient) {
+      throw new Error("唤醒词模式需要 STT client 支持 wake 事件");
+    }
+    return createWakeWordTrigger(sttClient);
+  }
   return trigger.global ? createGlobalTrigger(trigger.key) : createTerminalTrigger();
 }

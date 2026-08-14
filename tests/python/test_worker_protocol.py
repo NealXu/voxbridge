@@ -30,7 +30,8 @@ def test_ready_then_noise_on_stop():
          mock.patch.object(main.sys, "argv", worker_argv):
         main.main()
     lines = out.getvalue().strip().splitlines()
-    assert lines[0] == '{"type": "ready"}'
+    # ready 消息包含 VAD 类型信息（silero 或 energy_threshold）
+    assert '"type": "ready"' in lines[0]
     assert any("noise" in l for l in lines)
 
 
@@ -62,7 +63,8 @@ def test_transcribe_error_emits_error_not_crash():
         '{"type": "start"}\n{"type": "stop"}\n{"type": "quit"}\n',
         fake_engine, fake_recorder,
     )
-    assert lines[0] == '{"type": "ready"}'
+    # ready 消息包含 VAD 类型信息（silero 或 energy_threshold）
+    assert '"type": "ready"' in lines[0]
     # 转写抛异常 → 发 error，而不是让 worker 崩溃。
     assert '{"type": "error", "message": "boom"}' in lines
 

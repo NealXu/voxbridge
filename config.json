@@ -1,5 +1,13 @@
 {
-  "stt": { "model": "large-v3", "model_dir": "D:\\Models\\faster-whisper-large-v3", "language": "zh", "python_path": ".venv\\Scripts\\python.exe" },
-  "trigger": { "key": "F9", "global": true },
-  "agent": { "resume": true, "systemPrompt": "" }
+  "stt": {
+    "model": "large-v3",
+    "model_dir": "D:\\Models\\faster-whisper-large-v3",
+    "language": "zh",
+    "python_path": ".venv\\Scripts\\python.exe",
+    "plugin": "whisper",
+    "webspeech": { "language": "zh-CN", "port": 18765, "openBrowser": true }
+  },
+  "trigger": { "key": "F9", "global": true, "wakeWord": { "enabled": false, "phrase": "你好小助" } },
+  "agent": { "resume": true, "systemPrompt": "", "confirmDangerous": true },
+  "ui": { "mode": "console" }
 }

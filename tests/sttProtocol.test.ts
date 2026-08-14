@@ -21,6 +21,18 @@ test("parseEvent 解析 result 行", () => {
   });
 });
 
+test("parseEvent 解析 downloading 行", () => {
+  assert.deepEqual(parseEvent('{"type":"downloading","progress":0.5,"message":"下载中 50%"}'), {
+    type: "downloading", progress: 0.5, message: "下载中 50%",
+  });
+});
+
+test("parseEvent 解析 error 行", () => {
+  assert.deepEqual(parseEvent('{"type":"error","message":"未检测到音频输入设备"}'), {
+    type: "error", message: "未检测到音频输入设备",
+  });
+});
+
 test("WorkerSttClient 收到 result 后 stop 返回文本", async () => {
   const stdout = fakeStdout();
   const sent: SttCommand[] = [];

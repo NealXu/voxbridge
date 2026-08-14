@@ -13,6 +13,8 @@ const WORKER_EXITED_MSG = "STT worker 意外退出";
 export interface WorkerSttClientOptions {
   /** worker 意外退出（非 dispose）时的回调。 */
   onExit?: (reason: string) => void;
+  /** worker 报告模型下载进度。 */
+  onDownloading?: (progress: number, message: string) => void;
 }
 
 /** 通过 stdio JSONL 与 Python worker 通信。构造可注入 stdio 便于测试。 */
@@ -26,6 +28,7 @@ export class WorkerSttClient implements SttClient {
   private readyResolve: (() => void) | null = null;
   private readyReject: ((e: Error) => void) | null = null;
   private onExitCallback?: (reason: string) => void;
+  private onDownloadingCallback?: (progress: number, message: string) => void;
   private intentionalExit = false;
 
   constructor(
@@ -36,6 +39,7 @@ export class WorkerSttClient implements SttClient {
   ) {
     this.child = child ?? null;
     this.onExitCallback = options?.onExit;
+    this.onDownloadingCallback = options?.onDownloading;
     this.reader = createInterface({ input: stdout as any, crlfDelay: Infinity })[Symbol.asyncIterator]();
     // worker 退出（崩溃 / OOM / quit）时 stdout 会 end：无论何种路径都要兜住挂起的
     // stop()/waitReady()，避免上层永久挂起。
@@ -84,6 +88,9 @@ export class WorkerSttClient implements SttClient {
     }
     if (ev.type === "result" || ev.type === "noise") {
       this.settlePending(ev.type === "result" ? { kind: "text", text: ev.text } : { kind: "noise" });
+    }
+    if (ev.type === "downloading" && this.onDownloadingCallback) {
+      this.onDownloadingCallback(ev.progress, ev.message);
     }
   }
 

@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from stt_worker.protocol import decode, encode
 from stt_worker.recorder import Recorder
-from stt_worker.vad import has_voice
+from stt_worker.vad import has_voice, get_vad
 from stt_worker.whisper_engine import WhisperEngine
 
 
@@ -49,7 +49,14 @@ def main() -> None:
     # 启动时一次性加载 Whisper 模型（首次数秒、数 GB 内存），加载完成才发 ready。
     engine = WhisperEngine(args.model_dir)
     engine.load()
-    emit({"type": "ready"})
+
+    # 预加载 VAD 模型（silero-vad 或能量阈值 fallback）
+    # 在启动时加载可以避免首次识别的延迟，并尽早发现模型问题。
+    vad = get_vad()
+    if vad._model_loaded:
+        emit({"type": "ready", "vad": "silero"})
+    else:
+        emit({"type": "ready", "vad": "energy_threshold"})
 
     recorder: Recorder | None = None
     for line in sys.stdin:
