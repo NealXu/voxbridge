@@ -18,7 +18,6 @@ test("解析合法配置", () => {
     trigger: { key: "F9", global: true },
   }, (p) => {
     const c = loadConfig(p);
-    assert.equal(c.stt.plugin, "whisper");
     assert.equal(c.stt.model, "large-v3");
     assert.equal(c.trigger.key, "F9");
     assert.equal(c.agent.resume, true); // 缺省

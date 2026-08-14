@@ -9,22 +9,33 @@ import type { Config } from "../config.js";
 
 const WORKER_EXITED_MSG = "STT worker 意外退出";
 
+/** WorkerSttClient 构造选项。 */
+export interface WorkerSttClientOptions {
+  /** worker 意外退出（非 dispose）时的回调。 */
+  onExit?: (reason: string) => void;
+}
+
 /** 通过 stdio JSONL 与 Python worker 通信。构造可注入 stdio 便于测试。 */
 export class WorkerSttClient implements SttClient {
   private reader: AsyncIterableIterator<string>;
   private pending: { resolve: (r: SttResult) => void; reject: (e: Error) => void } | null = null;
   private child: ChildProcess | null = null;
-  private exited = false;
+  /** worker 是否已退出（崩溃或 dispose）。 */
+  exited = false;
   private ready = false;
   private readyResolve: (() => void) | null = null;
   private readyReject: ((e: Error) => void) | null = null;
+  private onExitCallback?: (reason: string) => void;
+  private intentionalExit = false;
 
   constructor(
     private stdout: Readable,
     private send: (cmd: SttCommand) => void,
     child?: ChildProcess,
+    options?: WorkerSttClientOptions,
   ) {
     this.child = child ?? null;
+    this.onExitCallback = options?.onExit;
     this.reader = createInterface({ input: stdout as any, crlfDelay: Infinity })[Symbol.asyncIterator]();
     // worker 退出（崩溃 / OOM / quit）时 stdout 会 end：无论何种路径都要兜住挂起的
     // stop()/waitReady()，避免上层永久挂起。
@@ -98,14 +109,18 @@ export class WorkerSttClient implements SttClient {
     this.exited = true;
     this.rejectReady(new Error(WORKER_EXITED_MSG));
     this.settlePending({ kind: "error", message: WORKER_EXITED_MSG });
+    // 非故意退出（崩溃）时触发 onExit 回调
+    if (!this.intentionalExit && this.onExitCallback) {
+      this.onExitCallback(WORKER_EXITED_MSG);
+    }
   }
 
-  static spawnFor(stt: Config["stt"], cwd: string): WorkerSttClient {
+  static spawnFor(stt: Config["stt"], cwd: string, options?: WorkerSttClientOptions): WorkerSttClient {
     const child = spawn(resolvePython(stt.python_path, cwd), [
       "stt_worker/main.py", "--model", stt.model, "--model-dir", stt.model_dir, "--language", stt.language,
       // stderr 直接交给父进程终端，避免管道缓冲填满后 worker 阻塞写（I2 同款挂起）。
     ], { cwd, stdio: ["pipe", "pipe", "inherit"] });
-    return new WorkerSttClient(child.stdout!, (cmd) => child.stdin!.write(encodeCommand(cmd)), child);
+    return new WorkerSttClient(child.stdout!, (cmd) => child.stdin!.write(encodeCommand(cmd)), child, options);
   }
 
   start(): void { this.safeSend({ type: "start" }); }
@@ -135,6 +150,8 @@ export class WorkerSttClient implements SttClient {
   /** 完整关闭：发 quit → 等子进程退出（1s 宽限）→ 超时 kill 兜底并等退出。 */
   async dispose(): Promise<void> {
     const child = this.child;
+    // 标记为故意退出，避免触发 onExit 回调
+    this.intentionalExit = true;
     if (!child) {
       // 测试注入构造：无真实子进程，仅发 quit 并兜住挂起状态。
       this.quit();

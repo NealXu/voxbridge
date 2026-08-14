@@ -1,17 +1,45 @@
 import { loadConfig } from "./config.js";
 import { createSttClient } from "./stt/index.js";
+import type { SttClient } from "./stt/index.js";
 import { createAgentSession } from "./session/agentSession.js";
 import { createTrigger } from "./trigger/index.js";
 import type { Trigger } from "./trigger/index.js";
 import * as ui from "./ui/console.js";
 
 const config = loadConfig(process.argv[2] ?? "./config.json");
-const stt = createSttClient(config.stt, process.cwd());
+let stt = createSttClient(config.stt, process.cwd(), {
+  onExit: handleWorkerExit,
+});
 const session = createAgentSession({ config, cwd: process.cwd(), callbacks: {
   onTextDelta: (t) => ui.printAssistantDelta(t),
   onToolStart: (name) => ui.printToolLine(`▶ ${name}`),
   onStatus: (s) => { if (s === "error") ui.printError("agent 调用失败"); },
 } });
+
+// 崩溃恢复相关状态
+let consecutiveCrashes = 0;
+
+function handleWorkerExit(_reason: string) {
+  consecutiveCrashes++;
+  if (consecutiveCrashes >= 3) {
+    ui.printError("Worker 连续 3 次崩溃，退出");
+    process.exit(1);
+  }
+  ui.printStatus("Worker 崩溃，正在重启…");
+  // 创建新的 worker
+  stt = createSttClient(config.stt, process.cwd(), {
+    onExit: handleWorkerExit,
+  });
+  // 等待新 worker 就绪
+  stt.waitReady(30000)
+    .then(() => {
+      ui.printStatus(`就绪，按 ${config.trigger.key} 说话（Ctrl+C 退出）`);
+      consecutiveCrashes = 0; // 成功恢复后重置计数器
+    })
+    .catch(() => {
+      // 新 worker 也崩溃了，onExit 会再次触发，继续计数
+    });
+}
 
 async function handleStop() {
   ui.clearStatusLine();

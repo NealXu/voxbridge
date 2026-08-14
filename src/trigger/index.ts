@@ -9,19 +9,59 @@ export * from "./types.js";
 export function createGlobalTrigger(key: string): Trigger {
   let cb: TriggerCallbacks | null = null;
   let listener: GlobalKeyboardListener | null = null;
+  let listening = false;
+
+  // Esc cancel: listen for Esc key during recording
+  const onStdinData = (chunk: Buffer) => {
+    // Check for Esc byte (0x1b)
+    if (chunk.includes(0x1b)) {
+      listening = false;
+      cleanupStdin();
+      cb?.onCancel();
+    }
+  };
+
+  const setupStdin = () => {
+    if (process.stdin.isTTY) process.stdin.setRawMode(true);
+    process.stdin.on("data", onStdinData);
+  };
+
+  const cleanupStdin = () => {
+    process.stdin.off("data", onStdinData);
+    if (process.stdin.isTTY) process.stdin.setRawMode(false);
+  };
+
   return {
     start(c: TriggerCallbacks) {
       cb = c;
       listener = new GlobalKeyboardListener();
       void listener.addListener((e) => {
         if (e.name !== key) return;
-        if (e.state === "DOWN") cb!.onStartListening();
-        else cb!.onStopListening();
+        if (e.state === "DOWN") {
+          listening = true;
+          cb!.onStartListening();
+          // Enable Esc cancel when recording starts
+          setupStdin();
+        } else {
+          if (listening) {
+            listening = false;
+            cleanupStdin();
+            cb!.onStopListening();
+          }
+        }
       }).catch((err) => {
         console.error("[trigger] global hotkey failed to start:", err);
       });
     },
-    stop() { listener?.kill(); listener = null; cb = null; },
+    stop() {
+      listener?.kill();
+      listener = null;
+      if (listening) {
+        cleanupStdin();
+        listening = false;
+      }
+      cb = null;
+    },
   };
 }
 
