@@ -1,4 +1,4 @@
-# Voice-CC
+# Voxcode
 
 Voice-controlled Claude Code CLI. Press-to-talk (default `F9`) to capture audio, transcribe it locally with `faster-whisper`, and feed the result into Claude Code.
 
