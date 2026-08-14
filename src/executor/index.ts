@@ -52,6 +52,15 @@ export { StreamProcessor, isCompleteMessage, isErrorMessage, isWaitingForInputMe
 export { AsyncQueue } from "./inputQueue.js";
 export { CostTracker } from "./costTracker.js";
 
+// Re-export process pool / Agent Teams support
+export { ExecutorRegistry } from "./registry.js";
+export type { RegistryEntry, RegistryLogger, ExecutorRegistryOptions, AcquireOptions } from "./registry.js";
+export { PersistentClaudeExecutor } from "./persistentExecutor.js";
+export type { PersistentExecutorLike, PersistentExecutorOptions } from "./persistentExecutor.js";
+export { MAX_TEAMMATES, validateTeamSize, updateTeamState } from "./teamState.js";
+export { teamObserverHook, mapInputToTeamEvent } from "./teamHooks.js";
+export type { TeamObserverHook } from "./teamHooks.js";
+
 // Re-export helper utilities
 export { resolveClaudePath } from "./claudePath.js";
 export { buildChildEnv } from "./envFilter.js";

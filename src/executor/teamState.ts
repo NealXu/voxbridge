@@ -107,7 +107,7 @@ function applyTeammateIdle(state: TeamState, event: TeammateIdle): TeamState {
     if (member.status === "idle") return state;
     const teammates = [
       ...state.teammates.slice(0, idx),
-      { ...member, status: "idle" },
+      { ...member, status: "idle" as const },
       ...state.teammates.slice(idx + 1),
     ];
     return { name: state.name, teammates, tasks: state.tasks };
@@ -116,7 +116,7 @@ function applyTeammateIdle(state: TeamState, event: TeammateIdle): TeamState {
   // First sighting of this teammate: add them as idle.
   return {
     name: event.teamName ?? state.name,
-    teammates: [...state.teammates, { name: event.teammate, status: "idle" }],
+    teammates: [...state.teammates, { name: event.teammate, status: "idle" as const }],
     tasks: state.tasks,
   };
 }
