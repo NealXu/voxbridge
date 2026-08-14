@@ -1,9 +1,9 @@
 # voxcode 架构实施计划
 
-- **日期**：2026-08-14
+- **日期**：2026-08-14（更新 2026-08-15）
 - **目标版本**：0.2.0
 - **关联文档**：`architecture.md`（架构 + 设计，已整合）
-- **状态**：✅ 已实施（P0/P1/P2/P4 完成，212 测试通过；P3 保留待按需实施）
+- **状态**：✅ 已实施（P0–P4 全部完成，254 测试通过 + 2 跳过）
 
 ---
 
@@ -11,12 +11,12 @@
 
 将 voxcode 从「直接调用 AI API」重构为「通过 claude-agent-sdk 启动并控制本地 Claude Code 实例」，获得完整 coding 能力（读写文件、运行命令、调试、Agent Teams）。
 
-**范围**（2026-08-14 实施完成）：
-- ✅ 新增 `src/executor/`（14 个模块：ClaudeExecutor、StreamProcessor、AsyncQueue、envFilter、claudePath、costTracker、crashRecovery、errors、registry、persistentExecutor、teamState、teamHooks、types、index）
-- ✅ 改造 `src/session/` 使用新执行器（agentSession 通过 executor.startExecution 驱动）
-- ✅ UI 增强（9 方法：工具调用 + 文件变更 + 成本 + 完成统计，console + ink 双实现）
+**范围**（2026-08-14/15 实施完成）：
+- ✅ 新增 `src/executor/`（16 模块 + pty/ 3 文件：ClaudeExecutor、StreamProcessor、AsyncQueue、envFilter、claudePath、costTracker、crashRecovery、errors、registry、persistentExecutor、teamState、teamHooks、types、index、ptySession、screenWatcher）
+- ✅ 改造 `src/session/` 使用新执行器（agentSession 通过 executor.startExecution 驱动 + 4 个新回调）
+- ✅ UI 增强（工具调用 + 文件变更 + 成本 + 完成统计，console + ink 双实现）
 - ✅ Agent Teams（≤10 队友，teamState/teamHooks + 观察者钩子）
-- ⏸ PTY 模式（可选，按需，未实施）
+- ✅ PTY 模式（node-pty 驱动真实 claude TUI，28 测试）
 
 **不变量**（已保持）：
 - STT Worker（Python）不变
@@ -32,7 +32,7 @@
 | **P0** | 基础 SDK 模式 | 无 | `src/executor/` 核心 + 单次执行 | 语音→cc→文件修改 全链路 | ✅ |
 | **P1** | 会话持久化 + UI 完整版 | P0 | sessionManager + UI 增强 | 跨重启续接；工具/文件/成本显示 | ✅ |
 | **P2** | 错误处理 + 崩溃恢复 | P0 | 重试/恢复逻辑 | cc 崩溃自动重拉，3 次退出 | ✅ |
-| **P3** | PTY 模式 | 可选 | `src/executor/pty/` | 交互菜单可用 | ⏸ 待按需 |
+| **P3** | PTY 模式 | 可选 | `src/executor/pty/` | 交互菜单可用 | ✅ (2026-08-15) |
 | **P4** | 持久进程池 + Agent Teams | P0 | registry + persistentExecutor | ≤10 队友并行编码 | ✅ |
 
 ---
@@ -382,10 +382,10 @@ claude CLI 已安装并可执行：claude --version
 ## 11. 完成定义（DoD）
 
 - [x] 所有阶段验收标准达成
-- [x] `npm test` 全绿（212 通过，0 失败，2026-08-14 验证）
+- [x] `npm test` 全绿（254 pass + 2 skip，2026-08-15 验证）
 - [x] `architecture.md` 与实现一致
-- [ ] `user-guide.md` 更新（新配置项、Agent Teams 用法）— **待办**
-- [ ] 手动验证：语音创建 5 人团队并行重构 demo 项目 — **待办（需语音硬件）**
+- [x] `user-guide.md` 更新（新配置项、Agent Teams 用法）
+- [ ] 手动验证：语音创建 5 人团队并行重构 demo 项目 — **待办（需语音硬件，见 `verify-e2e.ps1`）**
 - [ ] 无孤儿进程（任务管理器检查）— **待办**
 
 ---
@@ -405,17 +405,20 @@ claude CLI 已安装并可执行：claude --version
 | **crashRecovery** | `src/executor/crashRecovery.ts` | MAX_CRASHES=3，连续崩溃计数 + 重置 |
 | **errors** | `src/executor/errors.ts` | 7 个错误码 + 中文格式化 + isRecoverable |
 | **ExecutorRegistry** | `src/executor/registry.ts` | chatId → executor 映射，空闲超时回收，shutdownAll |
-| **PersistentExecutor** | `src/executor/persistentExecutor.ts` | 长期 cc 进程 + 输入队列（Scaffold） |
+| **PersistentExecutor** | `src/executor/persistentExecutor.ts` | 长期 cc 进程 + **完整消费循环**（turn 分类、spontaneous/continuation-turn/between-turn-question 事件、nextTurn/shutdown） |
 | **teamState** | `src/executor/teamState.ts` | MAX_TEAMMATES=10，task_created/completed/teammate_idle 状态机 |
 | **teamHooks** | `src/executor/teamHooks.ts` | 非阻塞 SDK 观察者钩子 → TeamEvent |
+| **PtySession** | `src/executor/pty/ptySession.ts` | node-pty 驱动真实 claude TUI：spawn/readiness/jsonl-path/trust-dialog 预接受 |
+| **JsonlWatcher** | `src/executor/pty/screenWatcher.ts` | 监听会话 jsonl 增量解析 |
 | **UI 增强** | `src/ui/console.ts` + `ink/` | printToolCall/Result/FileChange/Command/Completion |
-| **AgentSession 重构** | `src/session/agentSession.ts` | 从直接 query() 改为 executor.startExecution() |
+| **AgentSession 重构** | `src/session/agentSession.ts` | 从直接 query() 改为 executor.startExecution() + onToolResult/onFileChange/onCommand/onCompletion 回调 |
 
 ### 12.2 验证结果
 
 ```
-npm test：212 tests, 212 pass, 0 fail（15 suites, 1.8s）
-E2E：全链路通过
+npm test：256 tests, 254 pass, 0 fail, 2 skip（2026-08-15 验证；skip 为需真实 cc 凭证的集成测试）
+tsc --noEmit：0 errors
+E2E：语音验证脚本 scripts/verify-e2e.ps1（需麦克风硬件）
 ```
 
 ### 12.3 遗留问题

@@ -2,7 +2,7 @@
 
 - **日期**：2026-08-14
 - **版本**：0.2.0
-- **状态**：✅ 已实施（P0/P1/P2/P4 完成，212 测试通过；详见 `implementation-plan.md` §12）
+- **状态**：✅ 已实施（P0–P4 全部完成，254 测试通过 + 2 跳过；详见 `implementation-plan.md` §12）
 
 ---
 
@@ -362,6 +362,7 @@ npm 依赖：
   node-global-key-listener ──────── 全局热键 (原生模块)
   ws ────────────────────────────── Web Speech 桥接
   react + ink ───────────────────── ink TUI（可选）
+  node-pty ──────────────────────── PTY 模式（P3，原生 prebuild）
 ```
 
 ### 6.2 外部服务
@@ -469,10 +470,9 @@ API Token            只存 ~/.claude/settings.json
 ┌────────────────────────────────────────────────┐
 │  ClaudeExecutor (单次模式)                       │
 │    startExecution(opts) → ExecutionHandle       │
-│      ├─ spawn cc 子进程                          │
 │      ├─ SDK query() 流式消费                     │
 │      ├─ 处理 tool_use / tool_result              │
-│      └─ 返回流式事件给调用方                      │
+│      └─ 返回流式事件给调用方（封装 spawn）        │
 │                                                  │
 │  ExecutorRegistry (持久模式)                     │
 │    acquire(chatId) → PersistentClaudeExecutor    │
@@ -483,13 +483,36 @@ API Token            只存 ~/.claude/settings.json
 │  PersistentClaudeExecutor                        │
 │    nextTurn(prompt) → TurnHandle                 │
 │    resolveQuestion(toolUseId, answers)           │
-│    on('spontaneous') / on('continuation-turn')   │
+│    runLoop() 消费循环：                          │
+│      ├─ 用户轮次结果 → 结束当前 turn             │
+│      ├─ 轮外活动  → emit('spontaneous')         │
+│      ├─ task_notification → emit('continuation-turn')
+│      └─ ask_user_question 轮外 → emit('between-turn-question')
 │    shutdown()                                    │
 │                                                  │
 │  StreamProcessor                                 │
 │    processMessage(msg) → CardState               │
+│                                                  │
+│  PtySession (PTY 模式, P3 已实现)                │
+│    spawn 真实 claude TUI (node-pty)              │
+│    ready() / typePrompt() / interrupt() / screen()
+│    JsonlWatcher 读取 ~/.claude/projects/...jsonl │
 └────────────────────────────────────────────────┘
 ```
+
+**辅助模块**（对等实现）：
+
+| 文件 | 职责 |
+|---|---|
+| `claudePath.ts` | 解析 cc 二进制路径（`CLAUDE_EXECUTABLE_PATH` → `where/which` → 兜底） |
+| `envFilter.ts` | 过滤 `CLAUDE*` 环境变量（防嵌套会话），白名单保留 |
+| `inputQueue.ts` | `AsyncQueue<T>` 多轮输入队列 |
+| `costTracker.ts` | `total_cost_usd` / `duration_ms` 累计 → `CompletionStats` |
+| `crashRecovery.ts` | `MAX_CRASHES=3`，连续崩溃计数 + 重置 |
+| `errors.ts` | 7 个错误码 + 中文格式化 + `isRecoverable` |
+| `teamState.ts` | `MAX_TEAMMATES=10`，TaskCreated/Completed/Idle 状态机 |
+| `teamHooks.ts` | 非阻塞 SDK 观察者钩子 → `TeamEvent` |
+| `pty/` | PTY 模式（ptySession / screenWatcher / index） |
 
 **持久进程池关键设计：**
 
@@ -550,12 +573,14 @@ class ExecutorRegistry {
 │    printStatus(text): void                       │
 │    printRecognition(text): void                  │
 │    printAssistantDelta(text): void               │
+│    printToolLine(text): void                     │
 │    printToolCall(tool): void                     │
 │    printToolResult(tool, result): void           │
 │    printFileChange(file, action): void           │
 │    printCommand(cmd, output?): void              │
 │    printCompletion(stats): void                  │
-│    printTeamState(team): void                    │
+│    printError(text): void                        │
+│    printWarning(text): void                      │
 │    clearStatusLine(): void                       │
 │    printDownloadProgress(p, m): void             │
 │    promptEditRecognition(text): Promise<string?>  │
@@ -567,6 +592,21 @@ class ExecutorRegistry {
 │  工厂：                                          │
 │    createUI(config.ui.mode) → UI                 │
 └────────────────────────────────────────────────┘
+```
+
+**说明**：`printTeamState`（队友面板）在设计中设想，但当前 UI 接口**未实现**——Agent Teams 状态目前通过 Team 事件钩子（`teamHooks`）收集，UI 面板渲染预留待后续（见 §7.3）。实际接口含 `printToolLine`（工具行）。关键类型：
+
+```typescript
+// src/executor/types.ts
+export interface ToolCallInfo {
+  name: string;
+  input?: unknown;          // 输入参数
+}
+export interface CompletionStats {
+  durationMs: number;
+  costUsd?: number;
+  turns: number;
+}
 ```
 
 **UI 显示内容：**
@@ -771,12 +811,14 @@ export class StreamProcessor {
 ### 8.4 UI 类型扩展
 
 ```typescript
-// src/ui/types.ts
+// src/ui/types.ts（接口方法：printToolCall / printToolResult / printFileChange /
+//       printCommand / printCompletion，类型从 executor 导入）
 export interface UI {
   // 现有接口
   printStatus(text: string): void;
   printRecognition(text: string): void;
   printAssistantDelta(text: string): void;
+  printToolLine(text: string): void;
 
   // 新增接口
   printToolCall(tool: ToolCallInfo): void;
@@ -784,13 +826,12 @@ export interface UI {
   printFileChange(file: string, action: 'create' | 'modify' | 'delete'): void;
   printCommand(cmd: string, output?: string): void;
   printCompletion(stats: CompletionStats): void;
-  printTeamState(team: TeamState): void;
 }
 
+// src/executor/types.ts
 export interface ToolCallInfo {
   name: string;
-  input?: Record<string, unknown>;
-  status: 'running' | 'complete' | 'error';
+  input?: unknown;
 }
 
 export interface CompletionStats {
@@ -798,7 +839,11 @@ export interface CompletionStats {
   costUsd?: number;
   turns: number;
 }
+```
 
+**Agent Teams 类型**（`src/executor/types.ts`，由 `teamState` / `teamHooks` 使用）：
+
+```typescript
 export interface TeamState {
   name?: string;
   teammates: TeamMember[];
@@ -817,6 +862,11 @@ export interface TeamTask {
   status: 'in_progress' | 'completed';
   teammate?: string;
 }
+
+export type TeamEvent =
+  | { kind: 'task_created'; taskId: string; subject: string; description?: string; teammate?: string; teamName?: string }
+  | { kind: 'task_completed'; taskId: string; subject: string; teammate?: string; teamName?: string }
+  | { kind: 'teammate_idle'; teammate: string; teamName: string };
 ```
 
 ---
@@ -832,7 +882,8 @@ export interface TeamTask {
     "mode": "sdk",                    // "sdk" | "pty"
     "persistent": true,               // 持久进程池
     "idleTimeoutMs": 1800000,         // 空闲超时（30分钟）
-    "maxConcurrent": 5                // 最大并发数
+    "maxConcurrent": 5,               // 最大并发数
+    "maxTeammates": 10                // Agent Teams 队友上限
   },
 
   // ─── Claude Code 配置（新增）───
@@ -874,22 +925,33 @@ export interface TeamTask {
 ## 11. 测试策略
 
 ```
-┌─ Node 测试 ──────────────────────────────────────────────┐
+┌─ Node 测试（30 文件，254 pass + 2 skip）─────────────────┐
 │                                                           │
-│  单元测试：                                                │
-│    config.test.ts ──────── 配置加载、默认值、校验           │
-│    executor.test.ts ────── CC Executor 接口               │
-│    streamProcessor.test.ts 消息流处理                      │
-│    sessionManager.test.ts 会话持久化                       │
-│    registry.test.ts ────── 进程池管理                      │
-│    terminalKeys.test.ts ── F9/Esc 按键解析                │
-│    sttProtocol.test.ts ─── JSONL 编解码                   │
+│  Executor：                                                │
+│    claudeExecutor.test.ts ── SDK 封装 / spawn / sendAnswer │
+│    claudePath.test.ts ────── 二进制路径解析                │
+│    envFilter.test.ts ────── CLAUDE* 过滤 / 白名单          │
+│    inputQueue.test.ts ───── AsyncQueue 多轮输入            │
+│    streamProcessor.test.ts ─ SDKMessage → CardState         │
+│    errorHandling.test.ts ── 错误码 / 格式化 / 可恢复        │
+│    registry.test.ts ────── 进程池 acquire/release           │
+│    persistentExecutorLoop.test.ts 消费循环 / 事件           │
+│    teamState.test.ts ───── 队友上限 / 状态机                │
+│    teamHooks.test.ts ───── 观察者钩子                       │
+│    pty.test.ts ─────────── PTY 会话 / JsonlWatcher (28)     │
 │                                                           │
-│  集成测试：                                                │
+│  Session：                                                 │
 │    session.test.ts ─────── Agent 会话管理                  │
-│    trigger.test.ts ─────── 触发模块                        │
-│    workerCrashRecovery.test.ts 崩溃恢复                    │
-│    claudeIntegration.test.ts 真实 cc 子进程（可选，需凭证） │
+│    persistSession.test.ts ─ 会话持久化 + cwd 校验           │
+│                                                           │
+│  STT / Trigger / UI：                                      │
+│    sttProtocol / pluginAdapter / pluginRegistry /          │
+│    webSpeechPlugin / trigger / terminalKeys / wakeword /   │
+│    ui / uiEnhancements / inkStore / inkWiring /            │
+│    promptEditRecognition / dangerousTools / config         │
+│                                                           │
+│  集成测试（skip，需凭证）：                                  │
+│    claudeIntegration.test.ts 真实 cc 子进程（CLAUDE_INTEGRATION=1）│
 │                                                           │
 │  框架：node:test + mock                                    │
 │  命令：npm test                                            │
@@ -921,32 +983,41 @@ export interface TeamTask {
 ```
 voxcode/
 ├── src/                          Node 主进程 (TypeScript)
-│   ├── main.ts                   装配入口
-│   ├── config.ts                 配置加载
+│   ├── main.ts                   装配入口（创建 executor + 接线 UI 回调）
+│   ├── config.ts                 配置加载（含 executor/claude 段）
 │   ├── env.ts                    环境变量读取
 │   ├── executor/                 CC 执行器
-│   │   ├── index.ts              工厂函数
-│   │   ├── claudeExecutor.ts     单次模式封装
-│   │   ├── persistentExecutor.ts 持久进程池实例
+│   │   ├── index.ts              工厂 + 全部 re-export
+│   │   ├── claudeExecutor.ts     SDK query 封装（单次执行）
+│   │   ├── claudePath.ts         cc 二进制路径解析
+│   │   ├── envFilter.ts          CLAUDE* 环境变量过滤
+│   │   ├── inputQueue.ts         AsyncQueue 输入队列
+│   │   ├── streamProcessor.ts    SDKMessage → CardState
+│   │   ├── costTracker.ts        成本/耗时累计
+│   │   ├── crashRecovery.ts      崩溃计数（3 次上限）
+│   │   ├── errors.ts             错误码 + 中文格式化
 │   │   ├── registry.ts           进程池管理
-│   │   ├── streamProcessor.ts    消息流处理
+│   │   ├── persistentExecutor.ts 长期进程 + 完整消费循环
+│   │   ├── teamState.ts          Agent Teams 状态机（≤10）
+│   │   ├── teamHooks.ts          Team 观察者钩子
 │   │   ├── types.ts              类型定义
-│   │   └── pty/                  PTY 模式（可选）
-│   │       ├── ptySession.ts
-│   │       └── screenWatcher.ts
+│   │   └── pty/                  PTY 模式（P3 已实现）
+│   │       ├── index.ts
+│   │       ├── ptySession.ts     node-pty 驱动真实 claude TUI
+│   │       └── screenWatcher.ts  JsonlWatcher 读取会话文件
 │   ├── session/                  Agent 会话
-│   │   ├── agentSession.ts       会话管理器
+│   │   ├── agentSession.ts       会话管理器（走 executor）
 │   │   ├── dangerousTools.ts     危险工具检测
 │   │   ├── persistSession.ts     会话持久化
-│   │   └── types.ts              类型定义
+│   │   └── types.ts              类型定义（含新回调）
 │   ├── stt/                      STT 客户端
 │   │   ├── index.ts              工厂函数
 │   │   ├── workerClient.ts       Worker 进程管理
 │   │   ├── protocol.ts           JSONL 编解码
-│   │   ├── types.ts              类型定义
-│   │   ├── pluginTypes.ts        插件接口
+│   │   ├── pluginAdapter.ts      插件适配
 │   │   ├── pluginRegistry.ts     插件注册表
-│   │   └── plugins/              插件实现
+│   │   ├── pluginTypes.ts        插件接口
+│   │   └── plugins/
 │   │       └── webSpeechPlugin.ts
 │   ├── trigger/                  触发模块
 │   │   ├── index.ts              工厂 + 全局热键/终端切换
@@ -954,7 +1025,7 @@ voxcode/
 │   │   ├── wakeword.ts           唤醒词触发器
 │   │   └── types.ts              类型定义
 │   ├── ui/                       终端 UI
-│   │   ├── console.ts            ANSI 输出
+│   │   ├── console.ts            ANSI 输出（含 5 个新方法）
 │   │   ├── types.ts              UI 接口
 │   │   ├── index.ts              UI 工厂
 │   │   └── ink/                  ink TUI（可选）
@@ -963,10 +1034,11 @@ voxcode/
 │   │       ├── StatusBar.tsx
 │   │       ├── RecognitionPanel.tsx
 │   │       ├── OutputPanel.tsx
-│   │       └── TeamPanel.tsx
+│   │       └── store.ts
 │   └── types/                    类型声明
 │       ├── ink.d.ts
-│       └── react.d.ts
+│       ├── react.d.ts
+│       └── node-pty.d.ts
 │
 ├── stt_worker/                   Python STT Worker
 │   ├── main.py                   入口 (JSONL 循环)
@@ -979,25 +1051,32 @@ voxcode/
 │   ├── protocol.py               JSONL 编解码
 │   └── models/                   模型目录 (silero-vad)
 │
-├── tests/                        测试
-│   ├── *.test.ts                 Node 测试
-│   └── python/                   Python 测试
+├── tests/                        测试（30 文件，254 pass + 2 skip）
+│   ├── claudeExecutor / claudePath / envFilter / inputQueue
+│   ├── streamProcessor / costTracker / crashRecovery / errors
+│   ├── registry / persistentExecutorLoop / teamState / teamHooks
+│   ├── pty / claudeIntegration（skip，需凭证）
+│   └── session / persistSession / trigger / stt / ui / config ...
 │
 ├── scripts/                      脚本
 │   ├── setup-env.ps1             环境安装
 │   ├── download-model.py         模型下载
-│   └── download_vad_model.py     VAD 模型下载
+│   ├── download_vad_model.py     VAD 模型下载
+│   ├── e2e.ts / e2e-ink.ts       E2E 冒烟
+│   ├── smoke-session.ts          会话冒烟
+│   └── verify-e2e.ps1            语音 E2E 手动验证清单
 │
 ├── docs/                         文档
 │   ├── arch/                     架构文档
-│   │   ├── user-guide.md         用户指南
 │   │   ├── architecture.md       架构文档 (本文件)
-│   │   └── implementation-plan.md     实施计划
+│   │   ├── implementation-plan.md     实施计划
+│   │   ├── user-guide.md         用户指南
+│   │   └── e2e-verification.md   E2E 验证指南
 │   ├── handover/                 交接文档
 │   └── superpowers/              设计文档/计划
 │
 ├── config.json                   项目配置
-├── package.json                  Node 依赖
+├── package.json                  Node 依赖（含 node-pty）
 ├── tsconfig.json                 TypeScript 配置
 └── pytest.ini                    Python 测试配置
 ```
@@ -1025,16 +1104,17 @@ voxcode/
 
 | 决策 | 结论 | 影响 |
 |---|---|---|
-| **Agent Teams** | ✅ 需要 | P4 持久进程池升级为必做 |
+| **Agent Teams** | ✅ 需要 | P4 持久进程池升级为必做，队友上限 10 |
 | **UI 增强** | ✅ 完整版（工具调用 + 文件变更 + 成本） | P1 范围明确 |
 | **配置项命名** | ✅ 合理（`executor` / `claude`） | 无需变更 |
-| **PTY 模式** | 保留为可选 | 按需实现 |
+| **PTY 模式** | ✅ 已实现（P3） | node-pty 驱动真实 TUI，2026-08-15 完成 |
 | **/background 后台任务** | 依赖持久进程池 | P4 一并支持 |
 
-### 13.2 待后续确认
+### 13.2 实施验证（2026-08-15）
 
-- [ ] 是否需要 `/background` 后台任务支持？
-- [ ] 进程池空闲回收策略？
+- `tsc --noEmit` → 0 错误
+- `npm test` → 256 总数 / 254 pass / 0 fail / 2 skip（集成测试，需真实 cc 凭证）
+- 语音 E2E → `scripts/verify-e2e.ps1`（需麦克风硬件手动执行）
 
 ---
 
@@ -1044,11 +1124,11 @@ voxcode/
 
 | 阶段 | 内容 | 预计时间 | 状态 |
 |---|---|---|---|
-| **P0** | 基础 SDK 模式实现 | 2 天 | 必做 |
-| **P1** | 会话持久化 + UI 增强（完整版） | 1 天 | 必做 |
-| **P2** | 错误处理 + 崩溃恢复 | 1 天 | 必做 |
-| **P3** | PTY 模式 | 1 天 | 可选（按需） |
-| **P4** | 持久进程池 + Agent Teams | 2 天 | **必做** |
+| **P0** | 基础 SDK 模式实现 | 2 天 | ✅ 已完成 |
+| **P1** | 会话持久化 + UI 增强（完整版） | 1 天 | ✅ 已完成 |
+| **P2** | 错误处理 + 崩溃恢复 | 1 天 | ✅ 已完成 |
+| **P3** | PTY 模式 | 1 天 | ✅ 已完成（2026-08-15） |
+| **P4** | 持久进程池 + Agent Teams | 2 天 | ✅ 已完成 |
 
 ### 14.2 P0 详细任务
 
