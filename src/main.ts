@@ -2,10 +2,12 @@ import { loadConfig } from "./config.js";
 import { createSttClient } from "./stt/index.js";
 import type { SttClient } from "./stt/index.js";
 import { createAgentSession } from "./session/agentSession.js";
+import { createClaudeExecutor, ClaudeExecutor, CostTracker } from "./executor/index.js";
 import { createTrigger } from "./trigger/index.js";
 import type { Trigger } from "./trigger/index.js";
 import { createUI } from "./ui/index.js";
-import type { UI } from "./ui/index.js";
+import type { UI, ToolCallInfo } from "./ui/index.js";
+import type { CompletionStats } from "./executor/index.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -16,12 +18,37 @@ let stt = createSttClient(config.stt, process.cwd(), {
   onExit: handleWorkerExit,
   onDownloading: (p, m) => ui.printDownloadProgress(p, m),
 });
-const session = createAgentSession({ config, cwd: process.cwd(), sessionFile: SESSION_FILE, callbacks: {
-  onTextDelta: (t) => ui.printAssistantDelta(t),
-  onToolStart: (name) => ui.printToolLine(`▶ ${name}`),
-  onStatus: (s) => { if (s === "error") ui.printError("agent 调用失败"); },
-  onDangerousTool: (name) => ui.printWarning(`[危险操作] ${name} — 正在执行…`),
-} });
+const costTracker = new CostTracker();
+
+// CC Executor: 通过 SDK 启动并控制本地 Claude Code 实例。
+const executor: ClaudeExecutor = createClaudeExecutor({
+  logger: console,
+  claudePath: config.claude?.path,
+  settingsPath: config.claude?.settingsPath,
+  model: config.claude?.model,
+});
+const session = createAgentSession({
+  config,
+  cwd: process.cwd(),
+  sessionFile: SESSION_FILE,
+  executor,
+  callbacks: {
+    onTextDelta: (t) => ui.printAssistantDelta(t),
+    onToolStart: (name) => ui.printToolCall({ name }),
+    onStatus: (s) => { if (s === "error") ui.printError("agent 调用失败"); },
+    onDangerousTool: (name) => ui.printWarning(`[危险操作] ${name} — 正在执行…`),
+    onToolResult: (tool: string, result: string) => ui.printToolResult(tool, result),
+    onFileChange: (file: string, action: "create" | "modify" | "delete") => ui.printFileChange(file, action),
+    onCommand: (cmd: string, output?: string) => ui.printCommand(cmd, output),
+    onCompletion: (stats: CompletionStats) => {
+      costTracker.add({
+        total_cost_usd: stats.costUsd,
+        duration_ms: stats.durationMs,
+      });
+      ui.printCompletion(costTracker.getStats());
+    },
+  },
+});
 
 // 崩溃恢复相关状态
 let consecutiveCrashes = 0;

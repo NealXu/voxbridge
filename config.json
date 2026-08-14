@@ -9,5 +9,18 @@
   },
   "trigger": { "key": "F9", "global": true, "wakeWord": { "enabled": false, "phrase": "你好小助" } },
   "agent": { "resume": true, "systemPrompt": "", "confirmDangerous": true },
-  "ui": { "mode": "console" }
+  "ui": { "mode": "console" },
+  "executor": {
+    "mode": "sdk",
+    "persistent": true,
+    "idleTimeoutMs": 1800000,
+    "maxConcurrent": 5,
+    "maxTeammates": 10
+  },
+  "claude": {
+    "path": "claude",
+    "settingsPath": "~/.claude/settings.json",
+    "appendSystemPrompt": "",
+    "model": "claude-opus-5"
+  }
 }

@@ -97,10 +97,19 @@ import type { ExecutorOptions } from "./types.js";
  * }
  * ```
  */
+export interface ClaudeExecutorFactoryOptions {
+  logger?: { info?: (...args: unknown[]) => void; warn?: (...args: unknown[]) => void; error?: (...args: unknown[]) => void };
+  claudePath?: string;
+  settingsPath?: string;
+  model?: string;
+}
+
 export function createClaudeExecutor(
-  options?: Partial<ExecutorOptions>
+  options?: ClaudeExecutorFactoryOptions
 ): ClaudeExecutor {
-  // Options can be used for future extensions (e.g., custom query implementation)
-  // For now, we just create a default executor
+  // Options can be used for future extensions (e.g., custom query implementation,
+  // explicit claude binary path, model override).
+  // The executor resolves the claude path internally at first use; these options
+  // are accepted now so wiring can honor them without an API change later.
   return new ClaudeExecutor();
 }

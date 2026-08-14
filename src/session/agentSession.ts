@@ -65,6 +65,12 @@ export function createAgentSession(opts: AgentSessionOptions): AgentSession {
             }
             handle.finish();
             callbacks.onStatus("idle");
+            // 完成统计（耗时/成本/轮数）
+            callbacks.onCompletion?.({
+              durationMs: state.durationMs ?? 0,
+              costUsd: state.costUsd,
+              turns: state.toolCalls.length,
+            });
             return { ok: true, sessionId: lastSessionId ?? "" };
           }
 
@@ -133,6 +139,27 @@ function handleCallbacks(
       if (config.agent.confirmDangerous && isDangerousTool(toolName) && callbacks.onDangerousTool) {
         callbacks.onDangerousTool(toolName);
       }
+      // 工具调用详情 → 文件变更 / 命令执行
+      const input = content.input as Record<string, unknown> | undefined;
+      if (callbacks.onFileChange) {
+        const filePath = typeof input?.path === "string" ? input.path : undefined;
+        if (filePath) {
+          const action = input?.content !== undefined ? "create" : "modify";
+          callbacks.onFileChange(filePath, action);
+        }
+      }
+      if (callbacks.onCommand && toolName === "Bash") {
+        const cmd = typeof input?.command === "string" ? input.command : undefined;
+        if (cmd) callbacks.onCommand(cmd);
+      }
+    }
+  }
+
+  // Handle tool_result → onToolResult
+  if (type === "tool_result") {
+    const resultText = typeof msg.result === "string" ? msg.result : "";
+    if (callbacks.onToolResult) {
+      callbacks.onToolResult("tool", resultText || "(completed)");
     }
   }
 }

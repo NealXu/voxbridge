@@ -23,6 +23,19 @@ export interface Config {
   };
   agent: { resume: boolean; systemPrompt: string; confirmDangerous: boolean };
   ui?: { mode: "console" | "ink" };
+  executor?: {
+    mode?: "sdk" | "pty";
+    persistent?: boolean;
+    idleTimeoutMs?: number;
+    maxConcurrent?: number;
+    maxTeammates?: number;
+  };
+  claude?: {
+    path?: string;
+    settingsPath?: string;
+    appendSystemPrompt?: string;
+    model?: string;
+  };
 }
 
 const DEFAULTS: Config = {
@@ -41,6 +54,18 @@ const DEFAULTS: Config = {
   },
   agent: { resume: true, systemPrompt: "", confirmDangerous: true },
   ui: { mode: "console" },
+  executor: {
+    mode: "sdk",
+    persistent: true,
+    idleTimeoutMs: 1800000,
+    maxConcurrent: 5,
+    maxTeammates: 10,
+  },
+  claude: {
+    path: "claude",
+    settingsPath: "~/.claude/settings.json",
+    appendSystemPrompt: "",
+  },
 };
 
 export function loadConfig(path: string): Config {
@@ -64,5 +89,13 @@ export function loadConfig(path: string): Config {
     },
     agent: { ...DEFAULTS.agent, ...(raw.agent ?? {}) },
     ui: { ...DEFAULTS.ui, ...(raw.ui ?? {}) },
+    executor: {
+      ...DEFAULTS.executor,
+      ...(raw.executor ?? {}),
+    },
+    claude: {
+      ...DEFAULTS.claude,
+      ...(raw.claude ?? {}),
+    },
   };
 }
