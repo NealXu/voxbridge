@@ -72,11 +72,11 @@ describe("UI 工厂函数", () => {
   it("createUI 应该根据 mode 返回正确的 UI", async () => {
     const { createUI } = await import("../src/ui/index.js");
 
-    const consoleUI = createUI("console");
+    const consoleUI = await createUI("console");
     assert.ok(consoleUI !== undefined);
     assert.ok(typeof consoleUI.printStatus === "function");
 
-    const inkUI = createUI("ink");
+    const inkUI = await createUI("ink");
     assert.ok(inkUI !== undefined);
     assert.ok(typeof inkUI.printStatus === "function");
   });
@@ -84,7 +84,7 @@ describe("UI 工厂函数", () => {
   it("createUI 默认返回 console UI", async () => {
     const { createUI } = await import("../src/ui/index.js");
 
-    const defaultUI = createUI();
+    const defaultUI = await createUI();
     assert.ok(defaultUI !== undefined);
     assert.ok(typeof defaultUI.printStatus === "function");
   });

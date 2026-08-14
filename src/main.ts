@@ -4,12 +4,14 @@ import type { SttClient } from "./stt/index.js";
 import { createAgentSession } from "./session/agentSession.js";
 import { createTrigger } from "./trigger/index.js";
 import type { Trigger } from "./trigger/index.js";
-import * as ui from "./ui/console.js";
+import { createUI } from "./ui/index.js";
+import type { UI } from "./ui/index.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 const config = loadConfig(process.argv[2] ?? "./config.json");
 const SESSION_FILE = join(homedir(), ".voxcode-session.json");
+let ui: UI;
 let stt = createSttClient(config.stt, process.cwd(), {
   onExit: handleWorkerExit,
   onDownloading: (p, m) => ui.printDownloadProgress(p, m),
@@ -80,6 +82,7 @@ process.on("SIGINT", async () => {
 });
 
 async function main() {
+  ui = await createUI(config.ui?.mode ?? "console");
   ui.printStatus("正在初始化语音引擎（首次启动可能需下载模型）…");
   try {
     await stt.waitReady(60000);
