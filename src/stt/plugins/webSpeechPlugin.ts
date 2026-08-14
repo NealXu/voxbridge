@@ -108,22 +108,29 @@ export class WebSpeechPlugin implements SttPlugin {
     this.pendingReject = null;
     this.browserOpened = false;
 
+    // 先终止所有 WebSocket 客户端，否则 wsServer.close() 会一直等待
     if (this.wsClient) {
-      this.wsClient.close();
+      try { this.wsClient.terminate(); } catch { /* 已断开则忽略 */ }
       this.wsClient = null;
     }
 
     if (this.wsServer) {
-      await new Promise<void>((resolve) => {
-        this.wsServer!.close(() => resolve());
-      });
+      // 强制终止所有连接
+      for (const client of this.wsServer.clients) {
+        try { client.terminate(); } catch { /* 忽略 */ }
+      }
+      await Promise.race([
+        new Promise<void>((resolve) => this.wsServer!.close(() => resolve())),
+        new Promise((resolve) => setTimeout(resolve, 1000)),
+      ]);
       this.wsServer = null;
     }
 
     if (this.server) {
-      await new Promise<void>((resolve) => {
-        this.server!.close(() => resolve());
-      });
+      await Promise.race([
+        new Promise<void>((resolve) => this.server!.close(() => resolve())),
+        new Promise((resolve) => setTimeout(resolve, 1000)),
+      ]);
       this.server = null;
     }
   }
