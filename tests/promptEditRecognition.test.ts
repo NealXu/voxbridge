@@ -115,6 +115,15 @@ test("renderEditPrompt 光标在行内显示", () => {
   const output = renderEditPrompt("hello", 2);
   // 检查是否有 ANSI 光标定位序列
   assert.ok(output.includes("\x1b["), "应包含 ANSI 序列");
+  // 光标应使用相对定位（上移一行），而非绝对定位到行 1
+  assert.ok(output.includes("\x1b[1A") || output.includes("\x1b[?"), "应使用相对定位或非绝对行1定位");
+});
+
+test("renderEditPrompt 光标定位使用相对移动", () => {
+  const output = renderEditPrompt("hello", 2);
+  // 应该先输出两行，然后光标相对移动
+  // 使用 \x1b[1A 上移一行，然后 \x1b[${col}G 移动到列
+  assert.ok(output.includes("\x1b[1A"), "应使用上移一行相对定位");
 });
 
 test("renderEditPrompt 光标在开头", () => {
@@ -129,11 +138,15 @@ test("renderEditPrompt 光标在末尾", () => {
   assert.ok(output.includes("hello"), "应包含完整文本");
 });
 
-test("renderEditPrompt 只显示两行", () => {
+test("renderEditPrompt 只显示两行可见内容", () => {
   const output = renderEditPrompt("hello", 2);
   const lines = output.split("\n");
-  // 应该只有两行：文本行 + 提示行
-  assert.equal(lines.length, 2, "应该只有两行输出");
+  // 应该有三个部分（文本行 + 提示行 + 光标序列）
+  // 但可见内容只有两行
+  // 第一行包含绿色文本，第二行包含灰色提示，第三行是纯 ANSI 序列
+  assert.ok(lines.length >= 2, "应该至少有两行");
+  assert.ok(lines[0].includes("hello"), "第一行应包含文本");
+  assert.ok(lines[1].includes("Enter"), "第二行应包含提示");
 });
 
 // ============================================
