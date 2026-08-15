@@ -12,6 +12,22 @@ export interface Config {
       port?: number;
       openBrowser?: boolean;
     };
+    vad?: {
+      /** silero-vad 语音概率阈值（0-1）。 */
+      threshold?: number;
+      /** 有效语音最短持续时长（毫秒）。 */
+      minVoiceMs?: number;
+      /** 静音 RMS 阈值（能量 fallback 用）。 */
+      silenceRms?: number;
+      /** 有声 RMS 阈值（能量 fallback 用）。 */
+      noiseMaxRms?: number;
+      /** VAD 处理块大小（毫秒）。 */
+      chunkMs?: number;
+      /** 端点检测：静音超过此时长切分（毫秒）。 */
+      endpointSilenceMs?: number;
+    };
+    /** 唤醒词（可选）。启用后 worker 进入持续识别模式，匹配时发 wake 事件。 */
+    wakeWord?: string;
   };
   trigger: {
     key: string;
@@ -22,7 +38,11 @@ export interface Config {
     };
   };
   agent: { resume: boolean; systemPrompt: string; confirmDangerous: boolean };
-  ui?: { mode: "console" | "ink" };
+  ui?: {
+    mode: "console" | "ink";
+    /** ink TUI 主题色（默认 "default"）。 */
+    theme?: "default" | "high-contrast" | "monochrome";
+  };
   executor?: {
     mode?: "sdk" | "pty";
     persistent?: boolean;
@@ -36,6 +56,13 @@ export interface Config {
     appendSystemPrompt?: string;
     model?: string;
   };
+  logging?: {
+    level?: "debug" | "info" | "warn" | "error" | "fatal";
+    dir?: string;
+    maxSize?: number;
+    maxFiles?: number;
+    enableConsole?: boolean;
+  };
 }
 
 const DEFAULTS: Config = {
@@ -46,6 +73,14 @@ const DEFAULTS: Config = {
     python_path: ".venv\\Scripts\\python.exe",
     plugin: "whisper",
     webspeech: { language: "zh-CN", port: 18765, openBrowser: true },
+    vad: {
+      threshold: 0.45,
+      minVoiceMs: 200,
+      silenceRms: 1e-4,
+      noiseMaxRms: 1e-2,
+      chunkMs: 32,
+      endpointSilenceMs: 800,
+    },
   },
   trigger: {
     key: "F9",
@@ -53,7 +88,7 @@ const DEFAULTS: Config = {
     wakeWord: { enabled: false, phrase: "你好小助" }
   },
   agent: { resume: true, systemPrompt: "", confirmDangerous: true },
-  ui: { mode: "console" },
+  ui: { mode: "console", theme: "default" },
   executor: {
     mode: "sdk",
     persistent: true,
@@ -65,6 +100,13 @@ const DEFAULTS: Config = {
     path: "claude",
     settingsPath: "~/.claude/settings.json",
     appendSystemPrompt: "",
+  },
+  logging: {
+    level: "info",
+    dir: "~/.voxcode/logs",
+    maxSize: 10 * 1024 * 1024,
+    maxFiles: 5,
+    enableConsole: false,
   },
 };
 
@@ -78,6 +120,11 @@ export function loadConfig(path: string): Config {
         ...DEFAULTS.stt.webspeech,
         ...(raw.stt?.webspeech ?? {}),
       },
+      vad: {
+        ...DEFAULTS.stt.vad,
+        ...(raw.stt?.vad ?? {}),
+      },
+      wakeWord: raw.stt?.wakeWord ?? DEFAULTS.stt.wakeWord,
     },
     trigger: {
       ...DEFAULTS.trigger,
@@ -96,6 +143,10 @@ export function loadConfig(path: string): Config {
     claude: {
       ...DEFAULTS.claude,
       ...(raw.claude ?? {}),
+    },
+    logging: {
+      ...DEFAULTS.logging,
+      ...(raw.logging ?? {}),
     },
   };
 }

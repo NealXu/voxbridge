@@ -4,7 +4,8 @@ import { readSettingsEnv } from "../env.js";
 import type { Config } from "../config.js";
 import type { AgentSession, SendResult, SessionCallbacks } from "./types.js";
 import { isDangerousTool } from "./dangerousTools.js";
-import { loadSessionId, saveSessionId, clearSessionId } from "./persistSession.js";
+import { loadSession, saveSessionId, clearSessionId } from "./persistSession.js";
+import type { Logger } from "../logger/index.js";
 
 export interface AgentSessionOptions {
   config: Config;
@@ -12,85 +13,170 @@ export interface AgentSessionOptions {
   callbacks: SessionCallbacks;
   executor?: ClaudeExecutor;
   sessionFile?: string;
+  logger?: Logger;
+}
+
+/**
+ * 判定 SDK 错误是否为"会话续接失败"——即 resume 的 sessionId 已过期/不存在。
+ *
+ * Claude Agent SDK 在 resume 失败时通常以 result error 返回，subtype 含 "session" 或
+ * 消息含 "session not found" / "not found"。这里用宽松匹配，避免误判其他业务错误。
+ */
+function isResumeFailure(msg: SDKMessage): boolean {
+  if (msg.type !== "result") return false;
+  const subtype = (msg as { subtype?: string }).subtype ?? "";
+  const errors = (msg as { errors?: unknown[] }).errors;
+  const errText = Array.isArray(errors) ? errors.join(" ") : "";
+  const combined = `${subtype} ${errText}`.toLowerCase();
+  return (
+    combined.includes("session") &&
+    (combined.includes("not found") ||
+      combined.includes("expired") ||
+      combined.includes("invalid") ||
+      combined.includes("error_reading_session"))
+  );
 }
 
 export function createAgentSession(opts: AgentSessionOptions): AgentSession {
   const { config, cwd, callbacks } = opts;
   const executor = opts.executor ?? new ClaudeExecutor();
   const sessionFile = opts.sessionFile;
+  const log = opts.logger?.child("session");
 
-  // Load persisted sessionId at startup
-  let lastSessionId: string | undefined = sessionFile ? loadSessionId(sessionFile) : undefined;
+  // Load persisted sessionId at startup — 使用 loadSession 检查过期
+  let lastSessionId: string | undefined;
+  if (sessionFile) {
+    const result = loadSession(sessionFile);
+    if (result.kind === "valid") {
+      lastSessionId = result.sessionId;
+      log?.info("resuming session", { sessionId: lastSessionId, updatedAt: result.updatedAt });
+    } else if (result.kind === "expired") {
+      log?.warn("session expired, starting new", {
+        updatedAt: result.updatedAt,
+        ageMs: result.ageMs,
+      });
+      clearSessionId(sessionFile);
+    } else {
+      log?.info("starting new session");
+    }
+  } else {
+    log?.info("starting new session");
+  }
 
-  return {
-    async send(prompt: string): Promise<SendResult> {
-      callbacks.onStatus("sending");
-      try {
-        const abortController = new AbortController();
+  /**
+   * 单次执行封装。resume 失败时由 send() 调用方决定是否清空 sessionId 重试。
+   */
+  async function sendOnce(
+    prompt: string,
+    effectiveSessionId: string | undefined,
+  ): Promise<SendResult & { resumeFailed?: boolean }> {
+    callbacks.onStatus("sending");
+    try {
+      const abortController = new AbortController();
 
-        const envVars = { ...process.env, ...readSettingsEnv(cwd) } as Record<string, string>;
-        const handle = executor.startExecution({
-          cwd,
-          abortController,
-          initialPrompt: prompt,
-          sessionId: config.agent.resume ? (lastSessionId ?? undefined) : undefined,
-          systemPromptAppend: config.agent.systemPrompt ?? undefined,
-          env: envVars,
-          settingSources: ["user", "project"],
-        });
+      const envVars = { ...process.env, ...readSettingsEnv(cwd) } as Record<string, string>;
+      log?.info("send start", { promptLen: prompt.length, resume: !!effectiveSessionId });
+      const handle = executor.startExecution({
+        cwd,
+        abortController,
+        initialPrompt: prompt,
+        sessionId: effectiveSessionId,
+        systemPromptAppend: config.agent.systemPrompt ?? undefined,
+        env: envVars,
+        settingSources: ["user", "project"],
+      });
 
-        const processor = new StreamProcessor({ userPrompt: prompt });
+      const processor = new StreamProcessor({ userPrompt: prompt });
 
-        let sessionId: string | undefined = lastSessionId;
+      let sessionId: string | undefined = lastSessionId;
+      let firstMessage = true;
 
-        for await (const msg of handle.stream) {
-          // Process message and get current state
-          const state = processor.processMessage(msg as SDKMessage);
-
-          // Update session ID from processor
-          const processorSessionId = processor.getSessionId();
-          if (processorSessionId) {
-            sessionId = processorSessionId;
-          }
-
-          // Handle callbacks based on message type
-          handleCallbacks(msg as SDKMessage, callbacks, config);
-
-          // Check for completion
-          if (state.status === "complete") {
-            lastSessionId = sessionId;
-            // Persist sessionId after successful send
-            if (sessionFile && lastSessionId) {
-              saveSessionId(sessionFile, lastSessionId);
-            }
+      for await (const msg of handle.stream) {
+        // 检查首条消息是否为 resume 失败
+        if (firstMessage) {
+          firstMessage = false;
+          if (effectiveSessionId && isResumeFailure(msg as SDKMessage)) {
             handle.finish();
-            callbacks.onStatus("idle");
-            // 完成统计（耗时/成本/轮数）
-            callbacks.onCompletion?.({
-              durationMs: state.durationMs ?? 0,
-              costUsd: state.costUsd,
-              turns: state.toolCalls.length,
+            log?.warn("resume failed, will retry with new session", {
+              attemptedSessionId: effectiveSessionId,
             });
-            return { ok: true, sessionId: lastSessionId ?? "" };
-          }
-
-          if (state.status === "error") {
-            handle.finish();
-            callbacks.onStatus("error");
-            return { ok: false, error: state.errorMessage ?? "Unknown error" };
+            return { ok: false, error: "session resume failed", resumeFailed: true };
           }
         }
 
-        // Stream ended without completion
-        handle.finish();
-        callbacks.onStatus("error");
-        return { ok: false, error: "unexpected end of stream" };
-      } catch (err) {
-        callbacks.onStatus("error");
-        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+        // Process message and get current state
+        const state = processor.processMessage(msg as SDKMessage);
+
+        // Update session ID from processor
+        const processorSessionId = processor.getSessionId();
+        if (processorSessionId) {
+          sessionId = processorSessionId;
+        }
+
+        // Handle callbacks based on message type
+        handleCallbacks(msg as SDKMessage, callbacks, config);
+
+        // Check for completion
+        if (state.status === "complete") {
+          lastSessionId = sessionId;
+          // Persist sessionId after successful send
+          if (sessionFile && lastSessionId) {
+            saveSessionId(sessionFile, lastSessionId);
+          }
+          handle.finish();
+          callbacks.onStatus("idle");
+          log?.info("send complete", {
+            sessionId: lastSessionId,
+            durationMs: state.durationMs,
+            costUsd: state.costUsd,
+            turns: state.toolCalls.length,
+          });
+          callbacks.onCompletion?.({
+            durationMs: state.durationMs ?? 0,
+            costUsd: state.costUsd,
+            turns: state.toolCalls.length,
+          });
+          return { ok: true, sessionId: lastSessionId ?? "" };
+        }
+
+        if (state.status === "error") {
+          handle.finish();
+          callbacks.onStatus("error");
+          log?.error("send error", { error: state.errorMessage });
+          return { ok: false, error: state.errorMessage ?? "Unknown error" };
+        }
       }
+
+      // Stream ended without completion
+      handle.finish();
+      callbacks.onStatus("error");
+      log?.error("stream ended without completion");
+      return { ok: false, error: "unexpected end of stream" };
+    } catch (err) {
+      callbacks.onStatus("error");
+      const errMsg = err instanceof Error ? err.message : String(err);
+      log?.error("send threw", { error: errMsg });
+      return { ok: false, error: errMsg };
+    }
+  }
+
+  return {
+    async send(prompt: string): Promise<SendResult> {
+      const effectiveSessionId = config.agent.resume ? (lastSessionId ?? undefined) : undefined;
+      const result = await sendOnce(prompt, effectiveSessionId);
+
+      // Resume 失败自动回退：清空 sessionId 并用新会话重试一次
+      if (result.resumeFailed && effectiveSessionId) {
+        if (sessionFile) clearSessionId(sessionFile);
+        lastSessionId = undefined;
+        callbacks.onSessionFallback?.(effectiveSessionId);
+        return await sendOnce(prompt, undefined);
+      }
+
+      return result;
     },
     reset(): void {
+      log?.info("session reset", { previousSessionId: lastSessionId });
       lastSessionId = undefined;
       // Clear persisted sessionId file
       if (sessionFile) {

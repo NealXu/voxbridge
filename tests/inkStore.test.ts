@@ -1,49 +1,81 @@
-import { describe, it, beforeEach } from "node:test";
+import { test } from "node:test";
 import assert from "node:assert/strict";
-import { getState, setState, appendOutputLine, subscribe } from "../src/ui/ink/store.js";
+import {
+  getState,
+  setState,
+  appendOutputLine,
+  appendHistory,
+  subscribe,
+  resetStore,
+} from "../src/ui/ink/store.js";
 
-describe("ink store", () => {
-  beforeEach(() => {
-    setState("status", "");
-    setState("recognition", "");
-    setState("outputLines", []);
+test("store: 初始状态为空", () => {
+  resetStore();
+  assert.equal(getState("status"), "");
+  assert.equal(getState("recognition"), "");
+  assert.deepEqual(getState("outputLines"), []);
+  assert.deepEqual(getState("history"), []);
+  assert.equal(getState("theme"), "default");
+});
+
+test("store: setState 触发 subscribe 回调", () => {
+  resetStore();
+  let calls = 0;
+  const unsub = subscribe(() => {
+    calls++;
   });
+  setState("status", "就绪");
+  assert.equal(calls, 1);
+  assert.equal(getState("status"), "就绪");
+  unsub();
+  setState("status", "就绪2");
+  assert.equal(calls, 1);
+});
 
-  it("getState 返回默认值", () => {
-    assert.equal(getState<string>("status"), "");
-    assert.deepEqual(getState<string[]>("outputLines"), []);
-  });
+test("store: appendOutputLine 累加行", () => {
+  resetStore();
+  appendOutputLine("line 1");
+  appendOutputLine("line 2");
+  assert.deepEqual(getState("outputLines"), ["line 1", "line 2"]);
+});
 
-  it("setState 更新值并通知订阅者", () => {
-    let notified = false;
-    subscribe(() => { notified = true; });
+test("store: appendHistory 累加并保留时间戳", () => {
+  resetStore();
+  appendHistory({ prompt: "你好" });
+  appendHistory({ prompt: "世界", response: "ok" });
+  const h = getState<Array<{ prompt: string; response?: string; timestamp: number }>>("history");
+  assert.equal(h.length, 2);
+  assert.equal(h[0].prompt, "你好");
+  assert.equal(h[1].response, "ok");
+  assert.ok(h[1].timestamp > 0);
+});
 
-    setState("status", "就绪");
-    assert.equal(getState<string>("status"), "就绪");
-    assert.equal(notified, true);
-  });
+test("store: appendHistory 超过 50 条自动丢弃最旧的", () => {
+  resetStore();
+  for (let i = 0; i < 60; i++) {
+    appendHistory({ prompt: `p-${i}` });
+  }
+  const h = getState<Array<{ prompt: string }>>("history");
+  assert.equal(h.length, 50);
+  assert.equal(h[0].prompt, "p-10");
+  assert.equal(h[49].prompt, "p-59");
+});
 
-  it("appendOutputLine 追加行并通知", () => {
-    let callCount = 0;
-    subscribe(() => { callCount++; });
+test("store: theme 默认 default，可切换到 high-contrast", () => {
+  resetStore();
+  assert.equal(getState("theme"), "default");
+  setState("theme", "high-contrast");
+  assert.equal(getState("theme"), "high-contrast");
+});
 
-    appendOutputLine("第一行");
-    appendOutputLine("第二行");
-
-    const lines = getState<string[]>("outputLines");
-    assert.deepEqual(lines, ["第一行", "第二行"]);
-    assert.equal(callCount, 2);
-  });
-
-  it("subscribe 返回取消函数", () => {
-    let count = 0;
-    const unsub = subscribe(() => { count++; });
-
-    setState("status", "a");
-    assert.equal(count, 1);
-
-    unsub();
-    setState("status", "b");
-    assert.equal(count, 1);
-  });
+test("store: resetStore 清空所有字段", () => {
+  setState("status", "x");
+  appendOutputLine("y");
+  appendHistory({ prompt: "z" });
+  setState("theme", "monochrome");
+  resetStore();
+  assert.equal(getState("status"), "");
+  assert.deepEqual(getState("outputLines"), []);
+  assert.deepEqual(getState("history"), []);
+  assert.equal(getState("theme"), "default");
 });

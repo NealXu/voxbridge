@@ -6,6 +6,7 @@ import { isAbsolute, join } from "node:path";
 import { encodeCommand, parseEvent } from "./protocol.js";
 import type { SttClient, SttCommand, SttEvent, SttResult } from "./types.js";
 import type { Config } from "../config.js";
+import type { Logger } from "../logger/index.js";
 
 const WORKER_EXITED_MSG = "STT worker 意外退出";
 
@@ -15,6 +16,12 @@ export interface WorkerSttClientOptions {
   onExit?: (reason: string) => void;
   /** worker 报告模型下载进度。 */
   onDownloading?: (progress: number, message: string) => void;
+  /** worker stderr 单行输出（用于崩溃诊断）。 */
+  onStderrLine?: (line: string) => void;
+  /** worker 检测到唤醒词时的回调。 */
+  onWake?: () => void;
+  /** 结构化 logger。 */
+  logger?: Logger;
 }
 
 /** 通过 stdio JSONL 与 Python worker 通信。构造可注入 stdio 便于测试。 */
@@ -29,7 +36,10 @@ export class WorkerSttClient implements SttClient {
   private readyReject: ((e: Error) => void) | null = null;
   private onExitCallback?: (reason: string) => void;
   private onDownloadingCallback?: (progress: number, message: string) => void;
+  private onStderrLineCallback?: (line: string) => void;
+  private onWakeCallback?: () => void;
   private intentionalExit = false;
+  private log?: Logger;
 
   constructor(
     private stdout: Readable,
@@ -40,11 +50,20 @@ export class WorkerSttClient implements SttClient {
     this.child = child ?? null;
     this.onExitCallback = options?.onExit;
     this.onDownloadingCallback = options?.onDownloading;
+    this.onStderrLineCallback = options?.onStderrLine;
+    this.onWakeCallback = options?.onWake;
+    this.log = options?.logger?.child("worker");
     this.reader = createInterface({ input: stdout as any, crlfDelay: Infinity })[Symbol.asyncIterator]();
     // worker 退出（崩溃 / OOM / quit）时 stdout 会 end：无论何种路径都要兜住挂起的
     // stop()/waitReady()，避免上层永久挂起。
     stdout.on("end", () => this.handleWorkerExit());
-    child?.on("exit", () => this.handleWorkerExit());
+    child?.on("exit", (code, signal) => {
+      this.log?.info("worker exit event", { pid: child.pid, code, signal });
+      this.handleWorkerExit();
+    });
+    if (child) {
+      this.log?.info("worker spawned", { pid: child.pid });
+    }
     void this.pump();
   }
 
@@ -72,6 +91,7 @@ export class WorkerSttClient implements SttClient {
   private dispatch(ev: SttEvent): void {
     if (ev.type === "ready") {
       this.ready = true;
+      this.log?.info("worker ready");
       if (this.readyResolve) {
         const resolve = this.readyResolve;
         this.readyResolve = null;
@@ -81,13 +101,23 @@ export class WorkerSttClient implements SttClient {
       return;
     }
     if (ev.type === "error") {
+      this.log?.error("worker reported error", { message: ev.message });
       // 等待 ready 期间的 error 也要让 waitReady() 拒绝。
       this.rejectReady(new Error(ev.message));
       this.settlePending({ kind: "error", message: ev.message });
       return;
     }
     if (ev.type === "result" || ev.type === "noise") {
+      this.log?.debug("worker event", { type: ev.type, text: ev.type === "result" ? ev.text : undefined });
       this.settlePending(ev.type === "result" ? { kind: "text", text: ev.text } : { kind: "noise" });
+    }
+    if (ev.type === "wake") {
+      this.log?.info("wake word detected", { phrase: (ev as { phrase?: string }).phrase });
+      try {
+        this.onWakeCallback?.();
+      } catch (err) {
+        this.log?.warn("onWake callback failed", { error: (err as Error).message });
+      }
     }
     if (ev.type === "downloading" && this.onDownloadingCallback) {
       this.onDownloadingCallback(ev.progress, ev.message);
@@ -114,6 +144,9 @@ export class WorkerSttClient implements SttClient {
   private handleWorkerExit(): void {
     if (this.exited) return;
     this.exited = true;
+    const code = this.child?.exitCode;
+    const signal = this.child?.signalCode;
+    this.log?.warn("worker exit", { pid: this.child?.pid, code, signal, intentional: this.intentionalExit });
     this.rejectReady(new Error(WORKER_EXITED_MSG));
     this.settlePending({ kind: "error", message: WORKER_EXITED_MSG });
     // 非故意退出（崩溃）时触发 onExit 回调
@@ -123,10 +156,39 @@ export class WorkerSttClient implements SttClient {
   }
 
   static spawnFor(stt: Config["stt"], cwd: string, options?: WorkerSttClientOptions): WorkerSttClient {
-    const child = spawn(resolvePython(stt.python_path, cwd), [
+    const pythonPath = resolvePython(stt.python_path, cwd);
+    const args = [
       "stt_worker/main.py", "--model", stt.model, "--model-dir", stt.model_dir, "--language", stt.language,
-      // stderr 直接交给父进程终端，避免管道缓冲填满后 worker 阻塞写（I2 同款挂起）。
-    ], { cwd, stdio: ["pipe", "pipe", "inherit"] });
+    ];
+    // VAD 参数（可选）— 透传给 Python worker，允许运行时调优
+    const vad = stt.vad;
+    if (vad) {
+      if (vad.threshold !== undefined) args.push("--vad-threshold", String(vad.threshold));
+      if (vad.minVoiceMs !== undefined) args.push("--vad-min-voice-ms", String(vad.minVoiceMs));
+      if (vad.silenceRms !== undefined) args.push("--vad-silence-rms", String(vad.silenceRms));
+      if (vad.noiseMaxRms !== undefined) args.push("--vad-noise-max-rms", String(vad.noiseMaxRms));
+      if (vad.chunkMs !== undefined) args.push("--vad-chunk-ms", String(vad.chunkMs));
+      if (vad.endpointSilenceMs !== undefined) args.push("--vad-endpoint-silence-ms", String(vad.endpointSilenceMs));
+    }
+    // 唤醒词（可选）— 透传 phrase 给 Python worker 启用持续识别模式
+    if (stt.wakeWord) {
+      args.push("--wake-word", stt.wakeWord);
+    }
+    options?.logger?.info("spawning worker", { pythonPath, args: args.join(" "), cwd });
+    const child = spawn(pythonPath, args, { cwd, stdio: ["pipe", "pipe", "pipe"] });
+    // stderr 按行分发给上层（用于崩溃诊断）。不阻断业务流 — 回调失败仅 warn 到日志。
+    if (child.stderr) {
+      const rl = createInterface({ input: child.stderr, crlfDelay: Infinity });
+      rl.on("line", (line) => {
+        try {
+          options?.onStderrLine?.(line);
+        } catch (err) {
+          options?.logger?.warn("onStderrLine callback failed", { error: (err as Error).message });
+        }
+      });
+      // unref：stderr 读取不应阻止进程退出
+      rl.on("close", () => {});
+    }
     return new WorkerSttClient(child.stdout!, (cmd) => child.stdin!.write(encodeCommand(cmd)), child, options);
   }
 
@@ -141,6 +203,16 @@ export class WorkerSttClient implements SttClient {
   quit(): Promise<void> {
     this.safeSend({ type: "quit" });
     return Promise.resolve();
+  }
+
+  /** 注册唤醒词事件监听（仅当 worker 以 --wake-word 启动时生效）。 */
+  onWake(callback: () => void): void {
+    this.onWakeCallback = callback;
+  }
+
+  /** 移除唤醒词事件监听。 */
+  offWake(_callback: () => void): void {
+    this.onWakeCallback = undefined;
   }
 
   waitReady(timeoutMs = 30000): Promise<void> {

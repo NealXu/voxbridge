@@ -13,6 +13,8 @@ export interface SessionCallbacks {
   onCommand?(cmd: string, output?: string): void;
   /** 完成统计（耗时/成本/轮数），UI 显示完成面板 */
   onCompletion?(stats: CompletionStats): void;
+  /** 会话续接失败自动回退到新会话，UI 显示提示 */
+  onSessionFallback?(previousSessionId: string): void;
 }
 
 /** 完成统计（executor 类型，session 层 re-export 避免重复定义） */

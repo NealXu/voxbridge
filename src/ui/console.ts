@@ -23,6 +23,26 @@ function summarizeInput(input: unknown): string {
   }
 }
 
+/** 计算字符串的终端显示宽度（考虑中文等宽字符）
+ * 中文、日文、韩文字符通常显示宽度为 2
+ * ASCII 字符宽度为 1
+ */
+export function getDisplayWidth(str: string): number {
+  let width = 0;
+  for (const char of str) {
+    const code = char.codePointAt(0) ?? 0;
+    // CJK 统一汉字范围：U+4E00 - U+9FFF
+    // CJK 扩展范围：U+3400 - U+4DBF, U+20000 - U+2A6DF 等
+    // 简化判断：非 ASCII 字符宽度为 2
+    if (code > 0x7F) {
+      width += 2;
+    } else {
+      width += 1;
+    }
+  }
+  return width;
+}
+
 export function printStatus(text: string): void { process.stdout.write(`\r\x1b[K${YELLOW}${text}${RESET}`); }
 export function printRecognition(text: string): void { process.stdout.write(`\r${GREEN}🎤 ${text}${RESET}\n`); }
 export function printAssistantDelta(text: string): void { process.stdout.write(text); }
@@ -81,47 +101,138 @@ export function printDownloadProgress(progress: number, message: string): void {
   process.stdout.write(`\r\x1b[K${YELLOW}⬇ ${bar} ${pct}% ${message}${RESET}`);
 }
 
-/** 处理编辑模式的按键输入，返回新的缓冲区状态和动作 */
-export function processEditKey(buffer: string, chunk: Buffer): { buffer: string; action: "confirm" | "cancel" | "continue" } {
+/** 渲染编辑提示的两行格式（识别文本 + 操作提示）
+ * 光标通过 ANSI 相对定位到文本行内（上移两行 + 移动列）
+ */
+export function renderEditPrompt(text: string, cursor: number): string {
+  // 第一行：🎤 文本内容
+  // 第二行：操作提示
+  // 光标通过相对定位：先输出两行，然后上移两行并移动到正确列
+
+  const line1 = `${GREEN}🎤 ${text}${RESET}`;
+  const line2 = `${DIM}(Enter 发送 / Esc 取消 / Ctrl+U 清空 / 方向键移动)${RESET}`;
+
+  // 光标定位：使用相对移动
+  // 1. 输出文本行 + 提示行（各带换行）
+  // 2. 上移两行：\x1b[2A（从当前位置到文本行）
+  // 3. 移动到列：\x1b[${col}G（1-indexed）
+
+  // 计算光标列：
+  // - "🎤 " 前缀：emoji 显示宽度 2 + 空格 1 = 3
+  // - 光标前的文本：需要计算显示宽度（中文字符宽度为 2）
+  // - ANSI 列从 1 开始计数
+  const prefixWidth = 3; // "🎤 " 显示宽度
+  const textBeforeCursor = text.slice(0, cursor);
+  const textWidth = getDisplayWidth(textBeforeCursor);
+  const cursorCol = prefixWidth + textWidth + 1; // +1 因为 ANSI 从 1 开始
+
+  const cursorSeq = `\x1b[2A\x1b[${cursorCol}G`;
+
+  // 渲染：先输出两行，然后光标定位到文本行
+  return `${line1}\n${line2}\n${cursorSeq}`;
+}
+
+/** 处理编辑模式的按键输入，返回新的缓冲区状态和动作
+ * @param buffer 当前文本内容
+ * @param chunk 按键字节
+ * @param hasEdited 是否已编辑（首次输入替换，后续插入）
+ * @param cursor 当前光标位置（默认为文本末尾）
+ */
+export function processEditKey(
+  buffer: string,
+  chunk: Buffer,
+  hasEdited: boolean,
+  cursor?: number
+): { buffer: string; action: "confirm" | "cancel" | "continue"; hasEdited: boolean; cursor: number } {
+  // 默认光标在末尾
+  const currentCursor = cursor ?? buffer.length;
+
   // Enter (CR or LF)
   if (chunk.includes(0x0d) || chunk.includes(0x0a)) {
-    return { buffer, action: "confirm" };
+    return { buffer, action: "confirm", hasEdited, cursor: currentCursor };
   }
 
-  // Esc
-  if (chunk.includes(0x1b)) {
-    return { buffer: "", action: "cancel" };
+  // Esc: 只把单字节的 ESC (0x1b) 视为取消
+  if (chunk.length === 1 && chunk[0] === 0x1b) {
+    return { buffer: "", action: "cancel", hasEdited, cursor: 0 };
   }
 
-  // Backspace: DEL (0x7f) or BS (0x08)
+  // Ctrl+U: clear buffer (NAK = 0x15)
+  if (chunk.includes(0x15)) {
+    return { buffer: "", action: "continue", hasEdited: true, cursor: 0 };
+  }
+
+  // Arrow keys: CSI sequences ESC [ A/B/C/D
+  // 上箭头 ESC [ A (0x1b 0x5b 0x41) - 忽略（未来可用于历史）
+  // 下箭头 ESC [ B (0x1b 0x5b 0x42) - 忽略
+  // 右箭头 ESC [ C (0x1b 0x5b 0x43) - 光标右移
+  // 左箭头 ESC [ D (0x1b 0x5b 0x44) - 光标左移
+  if (chunk.length >= 3 && chunk[0] === 0x1b && chunk[1] === 0x5b) {
+    const dir = chunk[2];
+    if (dir === 0x44) { // 左箭头 D
+      const newCursor = Math.max(0, currentCursor - 1);
+      return { buffer, action: "continue", hasEdited, cursor: newCursor };
+    }
+    if (dir === 0x43) { // 右箭头 C
+      const newCursor = Math.min(buffer.length, currentCursor + 1);
+      return { buffer, action: "continue", hasEdited, cursor: newCursor };
+    }
+    // 上/下箭头或其他：忽略
+    return { buffer, action: "continue", hasEdited, cursor: currentCursor };
+  }
+
+  // Backspace: DEL (0x7f) or BS (0x08) - 删除光标前字符
   if (chunk.includes(0x7f) || chunk.includes(0x08)) {
-    if (buffer.length === 0) return { buffer: "", action: "continue" };
-    // Remove last character (handles UTF-8 properly)
-    return { buffer: buffer.slice(0, -1), action: "continue" };
+    if (currentCursor === 0) {
+      return { buffer, action: "continue", hasEdited, cursor: 0 };
+    }
+    // 删除光标前的字符
+    const newBuffer = buffer.slice(0, currentCursor - 1) + buffer.slice(currentCursor);
+    return { buffer: newBuffer, action: "continue", hasEdited: true, cursor: currentCursor - 1 };
   }
 
-  // Regular printable characters - append to buffer
+  // Regular printable characters - insert at cursor position
   const text = chunk.toString("utf-8");
   if (text.length > 0) {
     // Filter out control characters but keep printable chars including unicode
     const printable = text.replace(/[\x00-\x1f\x7f-\x9f]/g, "");
     if (printable.length > 0) {
-      return { buffer: buffer + printable, action: "continue" };
+      let newBuffer: string;
+      let newCursor: number;
+      if (!hasEdited) {
+        // 第一次输入：替换整个内容
+        newBuffer = printable;
+        newCursor = printable.length;
+      } else {
+        // 后续输入：插入到光标位置
+        newBuffer = buffer.slice(0, currentCursor) + printable + buffer.slice(currentCursor);
+        newCursor = currentCursor + printable.length;
+      }
+      return { buffer: newBuffer, action: "continue", hasEdited: true, cursor: newCursor };
     }
   }
 
-  return { buffer, action: "continue" };
+  // 忽略其他按键
+  return { buffer, action: "continue", hasEdited, cursor: currentCursor };
 }
 
 /** 显示识别文本并等待用户确认/编辑，返回最终文本或 null（取消） */
 export async function promptEditRecognition(text: string): Promise<string | null> {
   let buffer = text;
+  let hasEdited = false;
+  let cursor = buffer.length; // 光标初始在末尾
 
-  // Print initial prompt
+  // Render two-line format: text + hints, cursor positioned via ANSI
   const render = () => {
-    process.stdout.write(`\r\x1b[K${GREEN}🎤 ${buffer}${RESET} ${DIM}(Enter 发送 / Esc 取消 / 输入修改)${RESET}`);
+    // 光标在文本行。清除从当前位置到屏幕底部，然后重新渲染。
+    // \x1b[J 清除从光标到屏幕末尾
+    process.stdout.write(`\r\x1b[J`);
+    process.stdout.write(renderEditPrompt(buffer, cursor));
   };
-  render();
+
+  // Initial render
+  process.stdout.write("\r\x1b[K");
+  process.stdout.write(renderEditPrompt(buffer, cursor));
 
   // Setup raw mode
   const wasRaw = process.stdin.isTTY ? process.stdin.isRaw : false;
@@ -129,16 +240,22 @@ export async function promptEditRecognition(text: string): Promise<string | null
 
   return new Promise<string | null>((resolve) => {
     const onData = (chunk: Buffer) => {
-      const result = processEditKey(buffer, chunk);
+      const result = processEditKey(buffer, chunk, hasEdited, cursor);
       buffer = result.buffer;
+      hasEdited = result.hasEdited;
+      cursor = result.cursor;
 
       if (result.action === "confirm") {
         cleanup();
-        process.stdout.write("\n");
+        // 清除编辑界面（两行），只保留最终文本
+        // 光标已在文本行，清除当前行并重绘文本
+        process.stdout.write(`\r\x1b[J`); // 清除从当前位置到屏幕末尾
+        process.stdout.write(`${GREEN}🎤 ${buffer}${RESET}\n`);
         resolve(buffer);
       } else if (result.action === "cancel") {
         cleanup();
-        process.stdout.write(`\r\x1b[K${DIM}已取消${RESET}\n`);
+        // 清除编辑界面，不显示"已取消"（由调用方处理）
+        process.stdout.write(`\r\x1b[J`);
         resolve(null);
       } else {
         render();
