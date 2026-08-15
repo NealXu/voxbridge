@@ -15,7 +15,10 @@ export function createGlobalTrigger(key: string, logger?: Logger): Trigger {
   let listening = false;
 
   const onStdinData = (chunk: Buffer) => {
-    if (chunk.includes(0x1b)) {
+    // 只把「单字节的孤立 ESC」视为取消。
+    // 多字节 ESC 序列（F9 = ESC [ 2 0 ~ 或 ESC O Q，方向键等）一律忽略 —
+    // 全局热键模式下 F9 由 OS 层监听，terminal 收到的 ESC 序列是副作用，不能当取消。
+    if (chunk.length === 1 && chunk[0] === 0x1b) {
       log?.debug("escape detected, cancelling");
       listening = false;
       cleanupStdin();
