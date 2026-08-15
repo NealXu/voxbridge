@@ -13,6 +13,9 @@ export function createGlobalTrigger(key: string, logger?: Logger): Trigger {
   let cb: TriggerCallbacks | null = null;
   let listener: GlobalKeyboardListener | null = null;
   let listening = false;
+  let stdinSetup = false; // 防止重复添加监听器
+  let lastEventTime = 0; // 防抖：上一次事件时间
+  const DEBOUNCE_MS = 50; // 50ms 内的重复事件忽略
 
   const onStdinData = (chunk: Buffer) => {
     // 诊断：记录每次 stdin 数据的字节数 + hex（前 16 字节），用于排查 F9 触发的 cancel 来源
@@ -32,11 +35,15 @@ export function createGlobalTrigger(key: string, logger?: Logger): Trigger {
   };
 
   const setupStdin = () => {
+    if (stdinSetup) return; // 防止重复添加
+    stdinSetup = true;
     if (process.stdin.isTTY) process.stdin.setRawMode(true);
     process.stdin.on("data", onStdinData);
   };
 
   const cleanupStdin = () => {
+    if (!stdinSetup) return;
+    stdinSetup = false;
     process.stdin.off("data", onStdinData);
     if (process.stdin.isTTY) process.stdin.setRawMode(false);
   };
@@ -48,7 +55,19 @@ export function createGlobalTrigger(key: string, logger?: Logger): Trigger {
       log?.info("global trigger starting", { key });
       void listener.addListener((e) => {
         if (e.name !== key) return;
+
+        // 防抖：只对 DOWN 事件防抖（UP 必须立即响应）
+        const now = Date.now();
+        if (e.state === "DOWN" && now - lastEventTime < DEBOUNCE_MS) {
+          return;
+        }
         if (e.state === "DOWN") {
+          lastEventTime = now;
+        }
+
+        if (e.state === "DOWN") {
+          // 防止重复触发
+          if (listening) return;
           log?.info("key DOWN", { key });
           listening = true;
           cb!.onStartListening();
