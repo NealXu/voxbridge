@@ -78,13 +78,25 @@ test("clearSessionId: 删除文件", async () => {
 });
 
 test("saveSessionId: 写入失败时静默忽略（不抛异常）", async () => {
-  // 尝试写入到无效路径
-  const invalidPath = "/nonexistent/path/that/does/not/exist/session.json";
+  // 创建一个只读目录，使其子路径无法写入
+  const tempDir = await mkdtemp(join(tmpdir(), "voxcode-test-readonly-"));
+  const readOnlyDir = join(tempDir, "readonly");
+  const { mkdirSync, chmodSync } = await import("node:fs");
+  mkdirSync(readOnlyDir);
+  chmodSync(readOnlyDir, 0o444); // 只读
 
-  // 不应抛出异常
-  assert.doesNotThrow(() => {
-    saveSessionId(invalidPath, "test-id");
-  });
+  const invalidPath = join(readOnlyDir, "subdir", "session.json");
+
+  try {
+    // 不应抛出异常（即使 mkdirSync 递归失败或写入失败）
+    assert.doesNotThrow(() => {
+      saveSessionId(invalidPath, "test-id");
+    });
+  } finally {
+    // 恢复权限以便清理
+    try { chmodSync(readOnlyDir, 0o755); } catch {}
+    await rm(tempDir, { recursive: true, force: true });
+  }
 });
 
 test("loadSessionId: 文件内容无效 JSON 时返回 undefined", async () => {
