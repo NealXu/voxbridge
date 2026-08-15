@@ -130,22 +130,30 @@ async function handleWorkerExit(_reason: string) {
 
 async function handleStop() {
   ui.clearStatusLine();
-  ui.printStatus("识别中…");
+  ui.printStatus("语音输入成功，识别中…");
   const result = await stt.stop();
   if (result.kind === "text") {
     const finalText = await ui.promptEditRecognition(result.text);
     if (finalText === null) {
-      ui.printStatus(`已取消，按 ${config.trigger.key} 说话`);
+      // 取消编辑：显示"已取消"后短暂停留，再显示就绪提示
+      await showCancelledThenReady();
       return;
     }
     const r = await session.send(finalText);
     if (!r.ok) ui.printError(r.error);
-    ui.printStatus(`就绪，按 ${config.trigger.key} 说话`);
+    ui.printStatus(`就绪，按 ${config.trigger.key} 说话（Ctrl+C 退出）`);
   } else if (result.kind === "noise") {
     ui.printStatus("未识别到语音");
   } else {
     ui.printError(result.message);
   }
+}
+
+/** 显示"已取消"后短暂停留，再显示就绪提示（覆盖） */
+async function showCancelledThenReady(): Promise<void> {
+  ui.printStatus("已取消");
+  await sleep(500);
+  ui.printStatus(`就绪，按 ${config.trigger.key} 说话（Ctrl+C 退出）`);
 }
 
 let trigger: Trigger | null = null;
@@ -203,7 +211,7 @@ async function main() {
       recording = false;
       stt.cancel();
       ui.clearStatusLine();
-      ui.printStatus("已取消");
+      void showCancelledThenReady();
     },
   });
   ui.printStatus(`就绪，按 ${config.trigger.key} 说话（Ctrl+C 退出）`);

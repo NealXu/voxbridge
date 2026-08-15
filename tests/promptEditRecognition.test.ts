@@ -75,3 +75,34 @@ test("Ctrl+U 清空后再输入", () => {
   const r2 = processEditKey("", Buffer.from("新"), true);
   assert.deepEqual(r2, { buffer: "新", action: "continue", hasEdited: true });
 });
+
+// ============================================
+// 状态机：EDITING 状态的 UI 渲染（两行格式）
+// ============================================
+
+import { renderEditPrompt } from "../src/ui/console.js";
+
+test("renderEditPrompt 生成两行格式", () => {
+  const output = renderEditPrompt("写一个hello world程序并运行");
+  const lines = output.split("\n");
+  assert.ok(lines.length >= 2, "应该有两行输出");
+  assert.ok(lines[0].includes("写一个hello world程序并运行"), "第一行应包含识别文本");
+  assert.ok(lines[1].includes("Enter 发送"), "第二行应包含操作提示");
+  assert.ok(lines[1].includes("Esc 取消"), "第二行应包含取消提示");
+  assert.ok(lines[1].includes("Ctrl+U 清空"), "第二行应包含清空提示");
+});
+
+test("renderEditPrompt 使用 ANSI 颜色", () => {
+  const output = renderEditPrompt("测试文本");
+  assert.ok(output.includes("\x1b["), "应包含 ANSI 转义序列");
+});
+
+test("renderEditPrompt 空文本处理", () => {
+  const output = renderEditPrompt("");
+  assert.ok(output.includes("🎤"), "即使空文本也应显示麦克风图标");
+});
+
+test("renderEditPrompt 中文文本处理", () => {
+  const output = renderEditPrompt("你好世界");
+  assert.ok(output.includes("你好世界"), "应正确显示中文");
+});

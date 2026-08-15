@@ -81,6 +81,13 @@ export function printDownloadProgress(progress: number, message: string): void {
   process.stdout.write(`\r\x1b[K${YELLOW}⬇ ${bar} ${pct}% ${message}${RESET}`);
 }
 
+/** 渲染编辑提示的两行格式（识别文本 + 操作提示） */
+export function renderEditPrompt(text: string): string {
+  const line1 = `${GREEN}🎤 ${text}${RESET}`;
+  const line2 = `${DIM}(Enter 发送 / Esc 取消 / Ctrl+U 清空)${RESET}`;
+  return `${line1}\n${line2}`;
+}
+
 /** 处理编辑模式的按键输入，返回新的缓冲区状态和动作 */
 export function processEditKey(buffer: string, chunk: Buffer, hasEdited: boolean): { buffer: string; action: "confirm" | "cancel" | "continue"; hasEdited: boolean } {
   // Enter (CR or LF)
@@ -125,11 +132,16 @@ export async function promptEditRecognition(text: string): Promise<string | null
   let buffer = text;
   let hasEdited = false;
 
-  // Print initial prompt
+  // Render two-line format: text + hints
   const render = () => {
-    process.stdout.write(`\r\x1b[K${GREEN}🎤 ${buffer}${RESET} ${DIM}(Enter 发送 / Esc 取消 / Ctrl+U 清空 / 输入修改)${RESET}`);
+    // Clear previous content (2 lines) and render new
+    process.stdout.write(`\r\x1b[K\x1b[1A\x1b[K`); // Clear up to 2 lines
+    process.stdout.write(renderEditPrompt(buffer));
   };
-  render();
+
+  // Initial render
+  process.stdout.write("\r\x1b[K");
+  process.stdout.write(renderEditPrompt(buffer));
 
   // Setup raw mode
   const wasRaw = process.stdin.isTTY ? process.stdin.isRaw : false;
@@ -147,7 +159,7 @@ export async function promptEditRecognition(text: string): Promise<string | null
         resolve(buffer);
       } else if (result.action === "cancel") {
         cleanup();
-        process.stdout.write(`\r\x1b[K${DIM}已取消${RESET}\n`);
+        process.stdout.write(`\r\x1b[K\x1b[1A\x1b[K${DIM}已取消${RESET}\n`);
         resolve(null);
       } else {
         render();
