@@ -81,14 +81,28 @@ export function printDownloadProgress(progress: number, message: string): void {
   process.stdout.write(`\r\x1b[K${YELLOW}⬇ ${bar} ${pct}% ${message}${RESET}`);
 }
 
-/** 渲染编辑提示的两行格式（识别文本 + 操作提示 + 光标） */
+/** 渲染编辑提示的两行格式（识别文本 + 操作提示）
+ * 光标通过 ANSI 转义序列定位到文本行内
+ */
 export function renderEditPrompt(text: string, cursor: number): string {
-  // 光标位置：在文本下方显示 ^ 指示器
+  // 第一行：🎤 文本内容
+  // 第二行：操作提示
+  // 光标通过 \x1b[<row>;<col>H 定位到文本行内
+
   const line1 = `${GREEN}🎤 ${text}${RESET}`;
   const line2 = `${DIM}(Enter 发送 / Esc 取消 / Ctrl+U 清空 / 方向键移动)${RESET}`;
-  // 光标指示：在正确位置显示 ^
-  const cursorIndicator = "  " + " ".repeat(cursor) + "^";
-  return `${line1}\n${line2}\n${DIM}${cursorIndicator}${RESET}`;
+
+  // 光标定位：
+  // 使用 ANSI 序列将光标移到文本位置
+  // 格式：ESC [ <row> ; <col> H
+  // row=1（第一行），col=4（"🎤 " 占 2 个字符位置 + 光标偏移）
+  // 注意：🎤 是 1 个字符宽度，后面空格 1 个，所以起始是 3
+  // 但 ANSI 列从 1 开始计数，所以是 3 + cursor + 1 = 4 + cursor
+  const cursorCol = 4 + cursor; // "🎤 " = 2 字符，从第 3 列开始是文本，+1 因为 ANSI 从 1 开始
+  const cursorSeq = `\x1b[1;${cursorCol}H`;
+
+  // 渲染：先输出两行，然后定位光标
+  return `${line1}\n${line2}${cursorSeq}`;
 }
 
 /** 处理编辑模式的按键输入，返回新的缓冲区状态和动作
@@ -181,10 +195,10 @@ export async function promptEditRecognition(text: string): Promise<string | null
   let hasEdited = false;
   let cursor = buffer.length; // 光标初始在末尾
 
-  // Render three-line format: text + hints + cursor indicator
+  // Render two-line format: text + hints, cursor positioned via ANSI
   const render = () => {
-    // Clear previous content (3 lines) and render new
-    process.stdout.write(`\r\x1b[K\x1b[1A\x1b[K\x1b[1A\x1b[K`); // Clear up to 3 lines
+    // Clear previous content (2 lines) and render new
+    process.stdout.write(`\r\x1b[K\x1b[1A\x1b[K`); // Clear up to 2 lines
     process.stdout.write(renderEditPrompt(buffer, cursor));
   };
 
@@ -210,7 +224,7 @@ export async function promptEditRecognition(text: string): Promise<string | null
       } else if (result.action === "cancel") {
         cleanup();
         // 清除编辑界面，不显示"已取消"（由调用方处理）
-        process.stdout.write(`\r\x1b[K\x1b[1A\x1b[K\x1b[1A\x1b[K`);
+        process.stdout.write(`\r\x1b[K\x1b[1A\x1b[K`);
         resolve(null);
       } else {
         render();

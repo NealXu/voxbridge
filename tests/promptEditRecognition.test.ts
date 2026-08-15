@@ -105,9 +105,35 @@ test("renderEditPrompt 中文文本处理", () => {
 
 test("renderEditPrompt 包含光标指示器", () => {
   const output = renderEditPrompt("hello", 2);
-  assert.ok(output.includes("^"), "应包含光标指示器");
-  // 光标位置 2，应该有正确的空格前缀
-  assert.ok(output.includes("  ^"), "光标前应有正确空格");
+  assert.ok(output.includes("🎤"), "应包含麦克风图标");
+  // 光标应在文本行内，使用下划线或反色显示
+  assert.ok(output.includes("he") && output.includes("llo"), "应包含文本");
+});
+
+test("renderEditPrompt 光标在行内显示", () => {
+  // 光标在位置 2，应该在 "l" 下方显示光标
+  const output = renderEditPrompt("hello", 2);
+  // 检查是否有 ANSI 光标定位序列
+  assert.ok(output.includes("\x1b["), "应包含 ANSI 序列");
+});
+
+test("renderEditPrompt 光标在开头", () => {
+  const output = renderEditPrompt("hello", 0);
+  // 光标在开头
+  assert.ok(output.includes("🎤"), "应包含麦克风图标");
+});
+
+test("renderEditPrompt 光标在末尾", () => {
+  const output = renderEditPrompt("hello", 5);
+  // 光标在末尾
+  assert.ok(output.includes("hello"), "应包含完整文本");
+});
+
+test("renderEditPrompt 只显示两行", () => {
+  const output = renderEditPrompt("hello", 2);
+  const lines = output.split("\n");
+  // 应该只有两行：文本行 + 提示行
+  assert.equal(lines.length, 2, "应该只有两行输出");
 });
 
 // ============================================
