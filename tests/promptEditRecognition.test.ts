@@ -340,3 +340,23 @@ test("getDisplayWidth 表情符号宽度为 2", () => {
   // 大多数终端中 emoji 显示宽度为 2
   assert.equal(getDisplayWidth("🎉"), 2, "emoji 宽度应为 2");
 });
+
+// ============================================
+// Ctrl+C 中断编辑测试
+// ============================================
+
+test("Ctrl+C (ETX 0x03) 应取消编辑", () => {
+  // 在 raw mode 下，Ctrl+C 发送 ETX (0x03) 而非 SIGINT
+  const result = processEditKey("hello", Buffer.from([0x03]), false);
+  assert.deepEqual(result, { buffer: "", action: "cancel", hasEdited: false, cursor: 0 }, "Ctrl+C 应取消编辑");
+});
+
+test("Ctrl+C 在空缓冲区时也应取消", () => {
+  const result = processEditKey("", Buffer.from([0x03]), false);
+  assert.deepEqual(result, { buffer: "", action: "cancel", hasEdited: false, cursor: 0 }, "Ctrl+C 在空缓冲区时应取消");
+});
+
+test("Ctrl+C 在光标非末尾时应取消", () => {
+  const result = processEditKey("hello", Buffer.from([0x03]), false, 2);
+  assert.deepEqual(result, { buffer: "", action: "cancel", hasEdited: false, cursor: 0 }, "Ctrl+C 应取消编辑，忽略光标位置");
+});

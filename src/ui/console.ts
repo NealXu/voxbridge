@@ -152,6 +152,11 @@ export function processEditKey(
     return { buffer, action: "confirm", hasEdited, cursor: currentCursor };
   }
 
+  // Ctrl+C (ETX 0x03): 在 raw mode 下，Ctrl+C 发送 ETX 而非 SIGINT
+  if (chunk.includes(0x03)) {
+    return { buffer: "", action: "cancel", hasEdited: false, cursor: 0 };
+  }
+
   // Esc: 只把单字节的 ESC (0x1b) 视为取消
   if (chunk.length === 1 && chunk[0] === 0x1b) {
     return { buffer: "", action: "cancel", hasEdited, cursor: 0 };
