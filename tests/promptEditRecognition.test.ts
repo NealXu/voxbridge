@@ -106,3 +106,55 @@ test("renderEditPrompt 中文文本处理", () => {
   const output = renderEditPrompt("你好世界");
   assert.ok(output.includes("你好世界"), "应正确显示中文");
 });
+
+// ============================================
+// 状态机：EDITING 状态的键盘输入 - 方向键不应触发取消
+// ============================================
+
+test("方向键（上）不应触发取消", () => {
+  // 上箭头: ESC [ A = 1b 5b 41
+  const result = processEditKey("hello", Buffer.from([0x1b, 0x5b, 0x41]), false);
+  assert.deepEqual(result.action, "continue", "上箭头应继续编辑，不取消");
+});
+
+test("方向键（下）不应触发取消", () => {
+  // 下箭头: ESC [ B = 1b 5b 42
+  const result = processEditKey("hello", Buffer.from([0x1b, 0x5b, 0x42]), false);
+  assert.deepEqual(result.action, "continue", "下箭头应继续编辑，不取消");
+});
+
+test("方向键（左）不应触发取消", () => {
+  // 左箭头: ESC [ D = 1b 5b 44
+  const result = processEditKey("hello", Buffer.from([0x1b, 0x5b, 0x44]), false);
+  assert.deepEqual(result.action, "continue", "左箭头应继续编辑，不取消");
+});
+
+test("方向键（右）不应触发取消", () => {
+  // 右箭头: ESC [ C = 1b 5b 43
+  const result = processEditKey("hello", Buffer.from([0x1b, 0x5b, 0x43]), false);
+  assert.deepEqual(result.action, "continue", "右箭头应继续编辑，不取消");
+});
+
+test("单字节 ESC 仍应取消", () => {
+  // 单独的 ESC 键 = 1b
+  const result = processEditKey("hello", Buffer.from([0x1b]), false);
+  assert.deepEqual(result.action, "cancel", "单字节 ESC 应取消");
+});
+
+test("其他 ESC 序列（如 F1-F12）应忽略", () => {
+  // F1: ESC O P = 1b 4f 50
+  const result = processEditKey("hello", Buffer.from([0x1b, 0x4f, 0x50]), false);
+  assert.deepEqual(result.action, "continue", "F1 功能键应忽略");
+});
+
+test("Home 键应忽略", () => {
+  // Home: ESC [ H 或 ESC [ 1 ~ = 1b 5b 31 7e
+  const result = processEditKey("hello", Buffer.from([0x1b, 0x5b, 0x48]), false);
+  assert.deepEqual(result.action, "continue", "Home 键应忽略");
+});
+
+test("End 键应忽略", () => {
+  // End: ESC [ F 或 ESC [ 4 ~
+  const result = processEditKey("hello", Buffer.from([0x1b, 0x5b, 0x46]), false);
+  assert.deepEqual(result.action, "continue", "End 键应忽略");
+});

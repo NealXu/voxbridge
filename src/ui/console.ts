@@ -95,8 +95,9 @@ export function processEditKey(buffer: string, chunk: Buffer, hasEdited: boolean
     return { buffer, action: "confirm", hasEdited };
   }
 
-  // Esc
-  if (chunk.includes(0x1b)) {
+  // Esc: 只把单字节的 ESC (0x1b) 视为取消
+  // 方向键等 ESC 序列（如 ESC[A, ESC[B 等）不应触发取消
+  if (chunk.length === 1 && chunk[0] === 0x1b) {
     return { buffer: "", action: "cancel", hasEdited };
   }
 
@@ -124,6 +125,7 @@ export function processEditKey(buffer: string, chunk: Buffer, hasEdited: boolean
     }
   }
 
+  // 忽略其他按键（方向键、功能键等 ESC 序列）
   return { buffer, action: "continue", hasEdited };
 }
 
@@ -159,7 +161,8 @@ export async function promptEditRecognition(text: string): Promise<string | null
         resolve(buffer);
       } else if (result.action === "cancel") {
         cleanup();
-        process.stdout.write(`\r\x1b[K\x1b[1A\x1b[K${DIM}已取消${RESET}\n`);
+        // 清除两行编辑界面，不显示"已取消"（由调用方处理）
+        process.stdout.write(`\r\x1b[K\x1b[1A\x1b[K`);
         resolve(null);
       } else {
         render();

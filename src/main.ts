@@ -19,6 +19,10 @@ const log = rootLogger.child("main");
 const SESSION_FILE = join(homedir(), ".voxcode-session.json");
 let ui: UI;
 
+/** 提示词历史记录（最近 N 条） */
+const promptHistory: string[] = [];
+const MAX_PROMPT_HISTORY = 5;
+
 /** 保留最近 N 行 worker stderr，崩溃时作为诊断上下文。 */
 const recentStderrLines: string[] = [];
 const MAX_RECENT_STDERR = 20;
@@ -139,8 +143,13 @@ async function handleStop() {
       await showCancelledThenReady();
       return;
     }
+    // 显示用户输入的提示词（添加到历史）
+    addPromptToHistory(finalText);
+    process.stdout.write(`${GREEN}🎤 ${finalText}${RESET}\n`);
     const r = await session.send(finalText);
     if (!r.ok) ui.printError(r.error);
+    // Agent 执行完成后显示历史和就绪提示
+    showPromptHistory();
     ui.printStatus(`就绪，按 ${config.trigger.key} 说话（Ctrl+C 退出）`);
   } else if (result.kind === "noise") {
     ui.printStatus("未识别到语音");
@@ -151,9 +160,31 @@ async function handleStop() {
 
 /** 显示"已取消"后短暂停留，再显示就绪提示（覆盖） */
 async function showCancelledThenReady(): Promise<void> {
-  ui.printStatus("已取消");
+  // 在状态行显示"已取消"（会被后续状态覆盖）
+  process.stdout.write(`\r\x1b[K${DIM}已取消${RESET}`);
   await sleep(500);
+  // 覆盖显示就绪提示（同一行）
   ui.printStatus(`就绪，按 ${config.trigger.key} 说话（Ctrl+C 退出）`);
+}
+
+/** 显示提示词历史（最近 N 条） */
+function showPromptHistory(): void {
+  if (promptHistory.length === 0) return;
+  // 只显示最近 5 条，从旧到新排列
+  const toShow = promptHistory.slice(-MAX_PROMPT_HISTORY);
+  for (const prompt of toShow) {
+    // 显示用户输入的提示词（灰色，表示历史）
+    process.stdout.write(`${DIM}🎤 ${prompt}${RESET}\n`);
+  }
+}
+
+/** 添加提示词到历史并显示 */
+function addPromptToHistory(prompt: string): void {
+  promptHistory.push(prompt);
+  // 保持最多 N 条历史
+  while (promptHistory.length > MAX_PROMPT_HISTORY) {
+    promptHistory.shift();
+  }
 }
 
 let trigger: Trigger | null = null;
