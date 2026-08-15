@@ -111,19 +111,19 @@ test("renderEditPrompt 包含光标指示器", () => {
 });
 
 test("renderEditPrompt 光标在行内显示", () => {
-  // 光标在位置 2，应该在 "l" 下方显示光标
+  // 光标在位置 2，应该在 "l" 位置显示光标
   const output = renderEditPrompt("hello", 2);
   // 检查是否有 ANSI 光标定位序列
   assert.ok(output.includes("\x1b["), "应包含 ANSI 序列");
-  // 光标应使用相对定位（上移一行），而非绝对定位到行 1
-  assert.ok(output.includes("\x1b[1A") || output.includes("\x1b[?"), "应使用相对定位或非绝对行1定位");
+  // 光标应使用相对定位（上移两行），而非绝对定位到行 1
+  assert.ok(output.includes("\x1b[2A"), "应使用上移两行定位到文本行");
 });
 
 test("renderEditPrompt 光标定位使用相对移动", () => {
   const output = renderEditPrompt("hello", 2);
   // 应该先输出两行，然后光标相对移动
-  // 使用 \x1b[1A 上移一行，然后 \x1b[${col}G 移动到列
-  assert.ok(output.includes("\x1b[1A"), "应使用上移一行相对定位");
+  // 使用 \x1b[2A 上移两行（文本行 + 提示行），然后 \x1b[${col}G 移动到列
+  assert.ok(output.includes("\x1b[2A"), "应使用上移两行定位到文本行");
 });
 
 test("renderEditPrompt 光标在开头", () => {

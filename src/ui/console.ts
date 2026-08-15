@@ -82,26 +82,25 @@ export function printDownloadProgress(progress: number, message: string): void {
 }
 
 /** 渲染编辑提示的两行格式（识别文本 + 操作提示）
- * 光标通过 ANSI 相对定位到文本行内（上移一行 + 移动列）
+ * 光标通过 ANSI 相对定位到文本行内（上移两行 + 移动列）
  */
 export function renderEditPrompt(text: string, cursor: number): string {
   // 第一行：🎤 文本内容
   // 第二行：操作提示
-  // 光标通过相对定位：先输出两行，然后上移一行并移动到正确列
+  // 光标通过相对定位：先输出两行，然后上移两行并移动到正确列
 
   const line1 = `${GREEN}🎤 ${text}${RESET}`;
   const line2 = `${DIM}(Enter 发送 / Esc 取消 / Ctrl+U 清空 / 方向键移动)${RESET}`;
 
   // 光标定位：使用相对移动
-  // 1. 输出两行
-  // 2. 上移一行：\x1b[1A
+  // 1. 输出文本行 + 提示行（各带换行）
+  // 2. 上移两行：\x1b[2A（从当前位置到文本行）
   // 3. 移动到列：\x1b[${col}G（1-indexed）
-  // "🎤 " = 2 字符，文本从第 3 列开始，ANSI 列从 1 开始
-  // 所以光标列 = 3 + cursor（因为 ANSI 从 1 开始，实际是 2 + cursor + 1 = cursor + 3）
-  // 注意：🎤 是 emoji，终端显示宽度为 2，后面有空格宽度 1，所以起始位置是 3
-  // 光标在第 cursor 个字符后，位置 = 3 (前缀) + cursor
-  const cursorCol = 3 + cursor; // "🎤 " 占 3 个显示宽度，光标在文本第 cursor 个字符后
-  const cursorSeq = `\x1b[1A\x1b[${cursorCol}G`;
+  // "🎤 " = 🎤(2字符宽) + 空格(1字符宽) = 3 显示宽度
+  // 文本从第 4 列开始（ANSI 从 1 开始计数）
+  // 光标在第 cursor 个字符处，位置 = 3 + cursor + 1 = 4 + cursor
+  const cursorCol = 4 + cursor; // "🎤 " = 3 显示宽度 + 1(ANSI起点) = 4
+  const cursorSeq = `\x1b[2A\x1b[${cursorCol}G`;
 
   // 渲染：先输出两行，然后光标定位到文本行
   return `${line1}\n${line2}\n${cursorSeq}`;
