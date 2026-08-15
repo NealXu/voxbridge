@@ -323,8 +323,7 @@ CC → Node（流式事件）：
 // ~/.voxcode-session.json
 {
   "sessionId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-  "cwd": "D:\\Codes\\voxcode",
-  "lastUsed": "2026-08-14T21:00:00Z"
+  "updatedAt": "2026-08-15T21:00:00.000Z"
 }
 ```
 
@@ -440,6 +439,13 @@ API Token            只存 ~/.claude/settings.json
 │    onStartListening(): void  ← 开始录音           │
 │    onStopListening(): void   ← 结束录音           │
 │    onCancel(): void          ← 取消              │
+│                                                  │
+│  终端触发器细节 (createTerminalTrigger):          │
+│    - F9 键序列支持：ESC[18~ 或 ESC[20~           │
+│      (Windows Terminal/PowerShell 用 ESC[20~)    │
+│    - 300ms 防抖：防止快速连续触发                  │
+│    - Esc 取消录音                                 │
+│    - Ctrl+C 优雅退出                              │
 └────────────────────────────────────────────────┘
 ```
 
@@ -919,6 +925,26 @@ export type TeamEvent =
 | waitReady 超时 | 60s 定时器 | reject → 打印错误并退出 |
 | 空闲超时 | ExecutorRegistry 计时器 | 释放 cc 进程，节省内存 |
 | dispose 超时 | 1s 宽限 | kill 兜底，确保无孤儿进程 |
+
+### 10.1 调试日志
+
+开发阶段可在 `src/main.ts`、`src/trigger/index.ts`、`src/trigger/terminalKeys.ts`、`src/stt/workerClient.ts` 等关键模块中启用文件日志：
+
+```typescript
+// 各模块顶部的 log() 函数
+const LOG_FILE = join(process.cwd(), "voxcode-debug.log");
+function log(msg: string) {
+  appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${msg}\n`);
+}
+```
+
+日志记录内容：
+- 触发器状态转换（`onStartListening` / `onStopListening` / `onCancel`）
+- 终端按键序列解析（F9 / Esc / Ctrl+C）
+- Worker 进程生命周期（spawn / ready / exit）
+- `session.send()` 执行流程
+
+日志文件位于项目根目录 `voxcode-debug.log`，可安全删除。
 
 ---
 
