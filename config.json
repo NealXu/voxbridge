@@ -13,7 +13,8 @@
       "noiseMaxRms": 1e-2,
       "chunkMs": 32,
       "endpointSilenceMs": 800
-    }
+    },
+    "wakeWord": null
   },
   "trigger": { "key": "F9", "global": true, "wakeWord": { "enabled": false, "phrase": "你好小助" } },
   "agent": { "resume": true, "systemPrompt": "", "confirmDangerous": true },

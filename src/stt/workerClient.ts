@@ -18,6 +18,8 @@ export interface WorkerSttClientOptions {
   onDownloading?: (progress: number, message: string) => void;
   /** worker stderr 单行输出（用于崩溃诊断）。 */
   onStderrLine?: (line: string) => void;
+  /** worker 检测到唤醒词时的回调。 */
+  onWake?: () => void;
   /** 结构化 logger。 */
   logger?: Logger;
 }
@@ -35,6 +37,7 @@ export class WorkerSttClient implements SttClient {
   private onExitCallback?: (reason: string) => void;
   private onDownloadingCallback?: (progress: number, message: string) => void;
   private onStderrLineCallback?: (line: string) => void;
+  private onWakeCallback?: () => void;
   private intentionalExit = false;
   private log?: Logger;
 
@@ -48,6 +51,7 @@ export class WorkerSttClient implements SttClient {
     this.onExitCallback = options?.onExit;
     this.onDownloadingCallback = options?.onDownloading;
     this.onStderrLineCallback = options?.onStderrLine;
+    this.onWakeCallback = options?.onWake;
     this.log = options?.logger?.child("worker");
     this.reader = createInterface({ input: stdout as any, crlfDelay: Infinity })[Symbol.asyncIterator]();
     // worker 退出（崩溃 / OOM / quit）时 stdout 会 end：无论何种路径都要兜住挂起的
@@ -107,6 +111,14 @@ export class WorkerSttClient implements SttClient {
       this.log?.debug("worker event", { type: ev.type, text: ev.type === "result" ? ev.text : undefined });
       this.settlePending(ev.type === "result" ? { kind: "text", text: ev.text } : { kind: "noise" });
     }
+    if (ev.type === "wake") {
+      this.log?.info("wake word detected", { phrase: (ev as { phrase?: string }).phrase });
+      try {
+        this.onWakeCallback?.();
+      } catch (err) {
+        this.log?.warn("onWake callback failed", { error: (err as Error).message });
+      }
+    }
     if (ev.type === "downloading" && this.onDownloadingCallback) {
       this.onDownloadingCallback(ev.progress, ev.message);
     }
@@ -158,6 +170,10 @@ export class WorkerSttClient implements SttClient {
       if (vad.chunkMs !== undefined) args.push("--vad-chunk-ms", String(vad.chunkMs));
       if (vad.endpointSilenceMs !== undefined) args.push("--vad-endpoint-silence-ms", String(vad.endpointSilenceMs));
     }
+    // 唤醒词（可选）— 透传 phrase 给 Python worker 启用持续识别模式
+    if (stt.wakeWord) {
+      args.push("--wake-word", stt.wakeWord);
+    }
     options?.logger?.info("spawning worker", { pythonPath, args: args.join(" "), cwd });
     const child = spawn(pythonPath, args, { cwd, stdio: ["pipe", "pipe", "pipe"] });
     // stderr 按行分发给上层（用于崩溃诊断）。不阻断业务流 — 回调失败仅 warn 到日志。
@@ -187,6 +203,16 @@ export class WorkerSttClient implements SttClient {
   quit(): Promise<void> {
     this.safeSend({ type: "quit" });
     return Promise.resolve();
+  }
+
+  /** 注册唤醒词事件监听（仅当 worker 以 --wake-word 启动时生效）。 */
+  onWake(callback: () => void): void {
+    this.onWakeCallback = callback;
+  }
+
+  /** 移除唤醒词事件监听。 */
+  offWake(_callback: () => void): void {
+    this.onWakeCallback = undefined;
   }
 
   waitReady(timeoutMs = 30000): Promise<void> {

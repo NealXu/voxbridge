@@ -26,6 +26,8 @@ export interface Config {
       /** 端点检测：静音超过此时长切分（毫秒）。 */
       endpointSilenceMs?: number;
     };
+    /** 唤醒词（可选）。启用后 worker 进入持续识别模式，匹配时发 wake 事件。 */
+    wakeWord?: string;
   };
   trigger: {
     key: string;
@@ -122,6 +124,7 @@ export function loadConfig(path: string): Config {
         ...DEFAULTS.stt.vad,
         ...(raw.stt?.vad ?? {}),
       },
+      wakeWord: raw.stt?.wakeWord ?? DEFAULTS.stt.wakeWord,
     },
     trigger: {
       ...DEFAULTS.trigger,

@@ -181,7 +181,7 @@ async function main() {
     await stt.dispose().catch(() => {});
     process.exit(1);
   }
-  trigger = createTrigger(config.trigger, undefined, rootLogger);
+  trigger = createTrigger(config.trigger, stt as any, rootLogger);
   trigger.start({
     onStartListening: () => {
       log.info("onStartListening called", { recording });
