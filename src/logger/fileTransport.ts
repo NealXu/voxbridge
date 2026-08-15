@@ -4,7 +4,7 @@
  * 设计要点：
  * - 内存队列 + 单 writer 协程：log() 只入队，writer 异步批写，永不阻塞业务线程。
  * - 队列满时丢弃最旧记录（背压保护），避免 OOM。
- * - 文件名格式：`voxcode.YYYY-MM-DD.log`；跨天自动切新文件。
+ * - 文件名格式：`voxbridge.YYYY-MM-DD.log`；跨天自动切新文件。
  * - 单文件超过 maxSize 时重命名为 `.N.log` 后缀再开新文件。
  * - 保留最近 maxFiles 份历史；超出的旧文件异步删除。
  * - flush() 等待队列清空；close() 关闭 writer 协程。
@@ -19,7 +19,7 @@ import type { LogRecord, LogTransport } from "./index.js";
 import { LEVEL_LABEL } from "./levels.js";
 
 export interface FileTransportOptions {
-  /** 日志目录，支持 `~` 前缀。默认 `~/.voxcode/logs`。 */
+  /** 日志目录，支持 `~` 前缀。默认 `~/.voxbridge/logs`。 */
   dir?: string;
   /** 单文件最大字节数，默认 10MB。 */
   maxSize?: number;
@@ -50,7 +50,7 @@ export class FileTransport implements LogTransport {
   private pump: (() => void) | null = null;
 
   constructor(opts: FileTransportOptions = {}) {
-    this.dir = resolvePath(opts.dir ?? "~/.voxcode/logs");
+    this.dir = resolvePath(opts.dir ?? "~/.voxbridge/logs");
     this.maxSize = opts.maxSize ?? DEFAULT_MAX_SIZE;
     this.maxFiles = opts.maxFiles ?? DEFAULT_MAX_FILES;
     this.queueCapacity = opts.queueCapacity ?? DEFAULT_QUEUE_CAPACITY;
@@ -149,7 +149,7 @@ export class FileTransport implements LogTransport {
     const today = new Date().toISOString().slice(0, 10);
     if (today !== this.currentDate) {
       this.currentDate = today;
-      this.currentPath = join(this.dir, `voxcode.${today}.log`);
+      this.currentPath = join(this.dir, `voxbridge.${today}.log`);
       await mkdir(this.dir, { recursive: true });
       try {
         const s = await stat(this.currentPath);
@@ -167,7 +167,7 @@ export class FileTransport implements LogTransport {
     let maxIdx = 0;
     try {
       const files = await readdir(this.dir);
-      // basePath 形如 /abs/dir/voxcode.YYYY-MM-DD.log
+      // basePath 形如 /abs/dir/voxbridge.YYYY-MM-DD.log
       const baseName = basePath.replace(/\.log$/, "").replace(/^.*[\\/]/, "");
       const re = new RegExp(`^${escapeRegex(baseName)}\\.(\\d+)\\.log$`);
       for (const f of files) {
@@ -191,7 +191,7 @@ export class FileTransport implements LogTransport {
   private async prune(): Promise<void> {
     try {
       const files = await readdir(this.dir);
-      const pattern = /^voxcode\.\d{4}-\d{2}-\d{2}(?:\.\d+)?\.log$/;
+      const pattern = /^voxbridge\.\d{4}-\d{2}-\d{2}(?:\.\d+)?\.log$/;
       const matches = files.filter((f) => pattern.test(f)).sort();
       // matches 按字典序 = 按时间从旧到新。保留最新 maxFiles 份。
       const toDelete = matches.slice(0, Math.max(0, matches.length - this.maxFiles));

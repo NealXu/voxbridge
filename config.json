@@ -34,7 +34,7 @@
   },
   "logging": {
     "level": "info",
-    "dir": "~/.voxcode/logs",
+    "dir": "~/.voxbridge/logs",
     "maxSize": 10485760,
     "maxFiles": 5,
     "enableConsole": false

@@ -22,7 +22,7 @@ const YELLOW = "\x1b[33m";
 const config = loadConfig(process.argv[2] ?? "./config.json");
 const rootLogger: Logger = createLoggerFromConfig(config);
 const log = rootLogger.child("main");
-const SESSION_FILE = join(homedir(), ".voxcode-session.json");
+const SESSION_FILE = join(homedir(), ".voxbridge-session.json");
 let ui: UI;
 
 /** 提示词历史记录（最近 N 条） */
@@ -212,7 +212,7 @@ process.on("SIGINT", async () => {
 
 async function main() {
   ui = await createUI(config.ui?.mode ?? "console");
-  log.info("voxcode starting", {
+  log.info("VoxBridge starting", {
     uiMode: config.ui?.mode,
     triggerKey: config.trigger.key,
     wakeWord: config.trigger.wakeWord?.enabled ?? false,

@@ -70,7 +70,7 @@ function claudeCliAvailable(): boolean {
 
 /** Scratch directory so a real session never touches repository files. */
 function makeTempCwd(): string {
-  const dir = join(tmpdir(), `voxcode-e2e-${process.pid}-${Date.now()}`);
+  const dir = join(tmpdir(), `voxbridge-e2e-${process.pid}-${Date.now()}`);
   mkdirSync(dir, { recursive: true });
   return dir;
 }

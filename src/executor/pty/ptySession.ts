@@ -123,7 +123,7 @@ export interface PtySessionOptions {
 /**
  * Derive the escaped project directory key exactly as claude itself does:
  * path separators and the win32 drive colon become dashes.
- * `D:\Codes\voxcode` maps to `D--Codes-voxcode`, `/a/b` maps to `-a-b`.
+ * `D:\Codes\voxbridge` maps to `D--Codes-voxbridge`, `/a/b` maps to `-a-b`.
  */
 export function escapeCwdToProjectDir(cwd: string): string {
   return cwd.replace(/[:\\/]/g, '-')
