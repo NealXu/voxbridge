@@ -4,6 +4,7 @@ import { StatusBar } from "./StatusBar.js";
 import { RecognitionPanel } from "./RecognitionPanel.js";
 import { OutputPanel } from "./OutputPanel.js";
 import { subscribe, getState } from "./store.js";
+import type { ThemeName } from "./theme.js";
 
 /**
  * ink 主应用组件
@@ -20,11 +21,12 @@ export function App() {
   const status = getState<string>("status");
   const recognition = getState<string>("recognition");
   const outputLines = getState<string[]>("outputLines");
+  const theme = getState<ThemeName>("theme");
 
   return (
     <Box flexDirection="column" paddingX={0}>
-      <StatusBar status={status} />
-      {recognition && <RecognitionPanel text={recognition} />}
+      <StatusBar status={status} theme={theme} />
+      {recognition && <RecognitionPanel text={recognition} theme={theme} />}
       {outputLines.length > 0 && <OutputPanel lines={outputLines} />}
     </Box>
   );
