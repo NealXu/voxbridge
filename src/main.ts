@@ -130,6 +130,7 @@ async function handleWorkerExit(_reason: string) {
 
 async function handleStop() {
   ui.clearStatusLine();
+  ui.printStatus("识别中…");
   const result = await stt.stop();
   if (result.kind === "text") {
     const finalText = await ui.promptEditRecognition(result.text);
