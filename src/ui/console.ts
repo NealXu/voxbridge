@@ -81,69 +81,116 @@ export function printDownloadProgress(progress: number, message: string): void {
   process.stdout.write(`\r\x1b[K${YELLOW}⬇ ${bar} ${pct}% ${message}${RESET}`);
 }
 
-/** 渲染编辑提示的两行格式（识别文本 + 操作提示） */
-export function renderEditPrompt(text: string): string {
+/** 渲染编辑提示的两行格式（识别文本 + 操作提示 + 光标） */
+export function renderEditPrompt(text: string, cursor: number): string {
+  // 光标位置：在文本下方显示 ^ 指示器
   const line1 = `${GREEN}🎤 ${text}${RESET}`;
-  const line2 = `${DIM}(Enter 发送 / Esc 取消 / Ctrl+U 清空)${RESET}`;
-  return `${line1}\n${line2}`;
+  const line2 = `${DIM}(Enter 发送 / Esc 取消 / Ctrl+U 清空 / 方向键移动)${RESET}`;
+  // 光标指示：在正确位置显示 ^
+  const cursorIndicator = "  " + " ".repeat(cursor) + "^";
+  return `${line1}\n${line2}\n${DIM}${cursorIndicator}${RESET}`;
 }
 
-/** 处理编辑模式的按键输入，返回新的缓冲区状态和动作 */
-export function processEditKey(buffer: string, chunk: Buffer, hasEdited: boolean): { buffer: string; action: "confirm" | "cancel" | "continue"; hasEdited: boolean } {
+/** 处理编辑模式的按键输入，返回新的缓冲区状态和动作
+ * @param buffer 当前文本内容
+ * @param chunk 按键字节
+ * @param hasEdited 是否已编辑（首次输入替换，后续插入）
+ * @param cursor 当前光标位置（默认为文本末尾）
+ */
+export function processEditKey(
+  buffer: string,
+  chunk: Buffer,
+  hasEdited: boolean,
+  cursor?: number
+): { buffer: string; action: "confirm" | "cancel" | "continue"; hasEdited: boolean; cursor: number } {
+  // 默认光标在末尾
+  const currentCursor = cursor ?? buffer.length;
+
   // Enter (CR or LF)
   if (chunk.includes(0x0d) || chunk.includes(0x0a)) {
-    return { buffer, action: "confirm", hasEdited };
+    return { buffer, action: "confirm", hasEdited, cursor: currentCursor };
   }
 
   // Esc: 只把单字节的 ESC (0x1b) 视为取消
-  // 方向键等 ESC 序列（如 ESC[A, ESC[B 等）不应触发取消
   if (chunk.length === 1 && chunk[0] === 0x1b) {
-    return { buffer: "", action: "cancel", hasEdited };
+    return { buffer: "", action: "cancel", hasEdited, cursor: 0 };
   }
 
   // Ctrl+U: clear buffer (NAK = 0x15)
   if (chunk.includes(0x15)) {
-    return { buffer: "", action: "continue", hasEdited: true };
+    return { buffer: "", action: "continue", hasEdited: true, cursor: 0 };
   }
 
-  // Backspace: DEL (0x7f) or BS (0x08)
+  // Arrow keys: CSI sequences ESC [ A/B/C/D
+  // 上箭头 ESC [ A (0x1b 0x5b 0x41) - 忽略（未来可用于历史）
+  // 下箭头 ESC [ B (0x1b 0x5b 0x42) - 忽略
+  // 右箭头 ESC [ C (0x1b 0x5b 0x43) - 光标右移
+  // 左箭头 ESC [ D (0x1b 0x5b 0x44) - 光标左移
+  if (chunk.length >= 3 && chunk[0] === 0x1b && chunk[1] === 0x5b) {
+    const dir = chunk[2];
+    if (dir === 0x44) { // 左箭头 D
+      const newCursor = Math.max(0, currentCursor - 1);
+      return { buffer, action: "continue", hasEdited, cursor: newCursor };
+    }
+    if (dir === 0x43) { // 右箭头 C
+      const newCursor = Math.min(buffer.length, currentCursor + 1);
+      return { buffer, action: "continue", hasEdited, cursor: newCursor };
+    }
+    // 上/下箭头或其他：忽略
+    return { buffer, action: "continue", hasEdited, cursor: currentCursor };
+  }
+
+  // Backspace: DEL (0x7f) or BS (0x08) - 删除光标前字符
   if (chunk.includes(0x7f) || chunk.includes(0x08)) {
-    if (buffer.length === 0) return { buffer: "", action: "continue", hasEdited };
-    // Remove last character (handles UTF-8 properly)
-    return { buffer: buffer.slice(0, -1), action: "continue", hasEdited: true };
+    if (currentCursor === 0) {
+      return { buffer, action: "continue", hasEdited, cursor: 0 };
+    }
+    // 删除光标前的字符
+    const newBuffer = buffer.slice(0, currentCursor - 1) + buffer.slice(currentCursor);
+    return { buffer: newBuffer, action: "continue", hasEdited: true, cursor: currentCursor - 1 };
   }
 
-  // Regular printable characters - append to buffer
+  // Regular printable characters - insert at cursor position
   const text = chunk.toString("utf-8");
   if (text.length > 0) {
     // Filter out control characters but keep printable chars including unicode
     const printable = text.replace(/[\x00-\x1f\x7f-\x9f]/g, "");
     if (printable.length > 0) {
-      // 第一次输入时清空原有识别结果（替换模式），后续追加
-      const newBuffer = hasEdited ? buffer + printable : printable;
-      return { buffer: newBuffer, action: "continue", hasEdited: true };
+      let newBuffer: string;
+      let newCursor: number;
+      if (!hasEdited) {
+        // 第一次输入：替换整个内容
+        newBuffer = printable;
+        newCursor = printable.length;
+      } else {
+        // 后续输入：插入到光标位置
+        newBuffer = buffer.slice(0, currentCursor) + printable + buffer.slice(currentCursor);
+        newCursor = currentCursor + printable.length;
+      }
+      return { buffer: newBuffer, action: "continue", hasEdited: true, cursor: newCursor };
     }
   }
 
-  // 忽略其他按键（方向键、功能键等 ESC 序列）
-  return { buffer, action: "continue", hasEdited };
+  // 忽略其他按键
+  return { buffer, action: "continue", hasEdited, cursor: currentCursor };
 }
 
 /** 显示识别文本并等待用户确认/编辑，返回最终文本或 null（取消） */
 export async function promptEditRecognition(text: string): Promise<string | null> {
   let buffer = text;
   let hasEdited = false;
+  let cursor = buffer.length; // 光标初始在末尾
 
-  // Render two-line format: text + hints
+  // Render three-line format: text + hints + cursor indicator
   const render = () => {
-    // Clear previous content (2 lines) and render new
-    process.stdout.write(`\r\x1b[K\x1b[1A\x1b[K`); // Clear up to 2 lines
-    process.stdout.write(renderEditPrompt(buffer));
+    // Clear previous content (3 lines) and render new
+    process.stdout.write(`\r\x1b[K\x1b[1A\x1b[K\x1b[1A\x1b[K`); // Clear up to 3 lines
+    process.stdout.write(renderEditPrompt(buffer, cursor));
   };
 
   // Initial render
   process.stdout.write("\r\x1b[K");
-  process.stdout.write(renderEditPrompt(buffer));
+  process.stdout.write(renderEditPrompt(buffer, cursor));
 
   // Setup raw mode
   const wasRaw = process.stdin.isTTY ? process.stdin.isRaw : false;
@@ -151,9 +198,10 @@ export async function promptEditRecognition(text: string): Promise<string | null
 
   return new Promise<string | null>((resolve) => {
     const onData = (chunk: Buffer) => {
-      const result = processEditKey(buffer, chunk, hasEdited);
+      const result = processEditKey(buffer, chunk, hasEdited, cursor);
       buffer = result.buffer;
       hasEdited = result.hasEdited;
+      cursor = result.cursor;
 
       if (result.action === "confirm") {
         cleanup();
@@ -161,8 +209,8 @@ export async function promptEditRecognition(text: string): Promise<string | null
         resolve(buffer);
       } else if (result.action === "cancel") {
         cleanup();
-        // 清除两行编辑界面，不显示"已取消"（由调用方处理）
-        process.stdout.write(`\r\x1b[K\x1b[1A\x1b[K`);
+        // 清除编辑界面，不显示"已取消"（由调用方处理）
+        process.stdout.write(`\r\x1b[K\x1b[1A\x1b[K\x1b[1A\x1b[K`);
         resolve(null);
       } else {
         render();
