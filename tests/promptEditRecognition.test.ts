@@ -61,3 +61,17 @@ test("空缓冲区时 Enter 确认", () => {
   const result = processEditKey("", Buffer.from([0x0d]), false);
   assert.deepEqual(result, { buffer: "", action: "confirm", hasEdited: false });
 });
+
+test("Ctrl+U 清空缓冲区", () => {
+  const result = processEditKey("hello world", Buffer.from([0x15]), false);
+  assert.deepEqual(result, { buffer: "", action: "continue", hasEdited: true });
+});
+
+test("Ctrl+U 清空后再输入", () => {
+  // 清空
+  const r1 = processEditKey("旧内容", Buffer.from([0x15]), false);
+  assert.deepEqual(r1, { buffer: "", action: "continue", hasEdited: true });
+  // 清空后输入（hasEdited=true，所以追加）
+  const r2 = processEditKey("", Buffer.from("新"), true);
+  assert.deepEqual(r2, { buffer: "新", action: "continue", hasEdited: true });
+});

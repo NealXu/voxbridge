@@ -135,7 +135,7 @@ async function handleStop() {
   if (result.kind === "text") {
     const finalText = await ui.promptEditRecognition(result.text);
     if (finalText === null) {
-      ui.printStatus("已取消");
+      ui.printStatus(`已取消，按 ${config.trigger.key} 说话`);
       return;
     }
     const r = await session.send(finalText);

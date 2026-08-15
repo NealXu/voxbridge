@@ -93,6 +93,11 @@ export function processEditKey(buffer: string, chunk: Buffer, hasEdited: boolean
     return { buffer: "", action: "cancel", hasEdited };
   }
 
+  // Ctrl+U: clear buffer (NAK = 0x15)
+  if (chunk.includes(0x15)) {
+    return { buffer: "", action: "continue", hasEdited: true };
+  }
+
   // Backspace: DEL (0x7f) or BS (0x08)
   if (chunk.includes(0x7f) || chunk.includes(0x08)) {
     if (buffer.length === 0) return { buffer: "", action: "continue", hasEdited };
@@ -122,7 +127,7 @@ export async function promptEditRecognition(text: string): Promise<string | null
 
   // Print initial prompt
   const render = () => {
-    process.stdout.write(`\r\x1b[K${GREEN}🎤 ${buffer}${RESET} ${DIM}(Enter 发送 / Esc 取消 / 输入修改)${RESET}`);
+    process.stdout.write(`\r\x1b[K${GREEN}🎤 ${buffer}${RESET} ${DIM}(Enter 发送 / Esc 取消 / Ctrl+U 清空 / 输入修改)${RESET}`);
   };
   render();
 
