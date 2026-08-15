@@ -342,21 +342,22 @@ test("getDisplayWidth 表情符号宽度为 2", () => {
 });
 
 // ============================================
-// Ctrl+C 中断编辑测试
+// Ctrl+C 退出系统测试
 // ============================================
 
-test("Ctrl+C (ETX 0x03) 应取消编辑", () => {
+test("Ctrl+C (ETX 0x03) 应退出系统", () => {
   // 在 raw mode 下，Ctrl+C 发送 ETX (0x03) 而非 SIGINT
+  // 编辑界面按 Ctrl+C 应该退出整个系统，而不是取消编辑
   const result = processEditKey("hello", Buffer.from([0x03]), false);
-  assert.deepEqual(result, { buffer: "", action: "cancel", hasEdited: false, cursor: 0 }, "Ctrl+C 应取消编辑");
+  assert.deepEqual(result, { buffer: "", action: "exit", hasEdited: false, cursor: 0 }, "Ctrl+C 应退出系统");
 });
 
-test("Ctrl+C 在空缓冲区时也应取消", () => {
+test("Ctrl+C 在空缓冲区时也应退出系统", () => {
   const result = processEditKey("", Buffer.from([0x03]), false);
-  assert.deepEqual(result, { buffer: "", action: "cancel", hasEdited: false, cursor: 0 }, "Ctrl+C 在空缓冲区时应取消");
+  assert.deepEqual(result, { buffer: "", action: "exit", hasEdited: false, cursor: 0 }, "Ctrl+C 在空缓冲区时应退出系统");
 });
 
-test("Ctrl+C 在光标非末尾时应取消", () => {
+test("Ctrl+C 在光标非末尾时应退出系统", () => {
   const result = processEditKey("hello", Buffer.from([0x03]), false, 2);
-  assert.deepEqual(result, { buffer: "", action: "cancel", hasEdited: false, cursor: 0 }, "Ctrl+C 应取消编辑，忽略光标位置");
+  assert.deepEqual(result, { buffer: "", action: "exit", hasEdited: false, cursor: 0 }, "Ctrl+C 应退出系统，忽略光标位置");
 });

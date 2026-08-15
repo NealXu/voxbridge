@@ -143,7 +143,7 @@ export function processEditKey(
   chunk: Buffer,
   hasEdited: boolean,
   cursor?: number
-): { buffer: string; action: "confirm" | "cancel" | "continue"; hasEdited: boolean; cursor: number } {
+): { buffer: string; action: "confirm" | "cancel" | "exit" | "continue"; hasEdited: boolean; cursor: number } {
   // 默认光标在末尾
   const currentCursor = cursor ?? buffer.length;
 
@@ -153,8 +153,9 @@ export function processEditKey(
   }
 
   // Ctrl+C (ETX 0x03): 在 raw mode 下，Ctrl+C 发送 ETX 而非 SIGINT
+  // 编辑界面按 Ctrl+C 应该退出整个系统
   if (chunk.includes(0x03)) {
-    return { buffer: "", action: "cancel", hasEdited: false, cursor: 0 };
+    return { buffer: "", action: "exit", hasEdited: false, cursor: 0 };
   }
 
   // Esc: 只把单字节的 ESC (0x1b) 视为取消
@@ -262,6 +263,11 @@ export async function promptEditRecognition(text: string): Promise<string | null
         // 清除编辑界面，不显示"已取消"（由调用方处理）
         process.stdout.write(`\r\x1b[J`);
         resolve(null);
+      } else if (result.action === "exit") {
+        cleanup();
+        // Ctrl+C 在编辑界面：退出整个系统
+        process.stdout.write(`\r\x1b[J`);
+        process.exit(0);
       } else {
         render();
       }
