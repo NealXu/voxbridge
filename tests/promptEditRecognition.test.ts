@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { processEditKey, renderEditPrompt } from "../src/ui/console.js";
+import { processEditKey, renderEditPrompt, getDisplayWidth } from "../src/ui/console.js";
 
 test("Enter 键确认", () => {
   const result = processEditKey("hello", Buffer.from([0x0d]), false);
@@ -256,4 +256,87 @@ test("中文退格删除正确", () => {
   // "你好世界"，光标在 3（在"世"后、"界"前），删除"世"
   const result = processEditKey("你好世界", Buffer.from([0x7f]), false, 3);
   assert.deepEqual(result, { buffer: "你好界", action: "continue", hasEdited: true, cursor: 2 }, "应删除位置 2 的字符'世'");
+});
+
+// ============================================
+// 光标移动范围约束测试
+// ============================================
+
+test("右箭头不应超过文本长度", () => {
+  // "hello" 长度 5，光标从 5 右移应保持 5
+  const result = processEditKey("hello", Buffer.from([0x1b, 0x5b, 0x43]), false, 5);
+  assert.equal(result.cursor, 5, "光标不应超过文本长度");
+});
+
+test("左箭头不应小于 0", () => {
+  // 光标从 0 左移应保持 0
+  const result = processEditKey("hello", Buffer.from([0x1b, 0x5b, 0x44]), false, 0);
+  assert.equal(result.cursor, 0, "光标不应小于 0");
+});
+
+test("空文本时光标始终为 0", () => {
+  const result = processEditKey("", Buffer.from([0x1b, 0x5b, 0x44]), false, 0);
+  assert.equal(result.cursor, 0, "空文本光标应为 0");
+});
+
+test("中文字符右箭头正确移动", () => {
+  // "你好世界" 光标从 2 右移到 3
+  const result = processEditKey("你好世界", Buffer.from([0x1b, 0x5b, 0x43]), false, 2);
+  assert.equal(result.cursor, 3, "中文光标应正确右移");
+});
+
+test("中文字符左箭头正确移动", () => {
+  // "你好世界" 光标从 2 左移到 1
+  const result = processEditKey("你好世界", Buffer.from([0x1b, 0x5b, 0x44]), false, 2);
+  assert.equal(result.cursor, 1, "中文光标应正确左移");
+});
+
+// ============================================
+// 光标列计算测试（考虑显示宽度）
+// ============================================
+
+test("calculateCursorCol 英文字符宽度为 1", () => {
+  // 假设前缀 "🎤 " = 3 显示宽度，英文各字符宽度 1
+  // "hello" 光标在 2，列应为 3 + 2 = 5
+  // 实际计算需要考虑 emoji 宽度
+  const prefixWidth = 3; // "🎤 " (emoji=2 + space=1)
+  const textBeforeCursor = "he"; // 2 characters = 2 width
+  const expectedCol = prefixWidth + textBeforeCursor.length + 1; // +1 for ANSI 1-indexed
+  assert.equal(expectedCol, 6, "英文光标列计算");
+});
+
+test("calculateCursorCol 中文字符宽度为 2", () => {
+  // "你好世界" 光标在 2（"你好" 后）
+  // 前缀 "🎤 " = 3 显示宽度
+  // "你好" = 2 * 2 = 4 显示宽度
+  // 列 = 3 + 4 + 1 = 8（ANSI 1-indexed）
+  const prefixWidth = 3;
+  const chineseCharWidth = 2;
+  const expectedCol = prefixWidth + 2 * chineseCharWidth + 1;
+  assert.equal(expectedCol, 8, "中文光标列计算");
+});
+
+// ============================================
+// getDisplayWidth 显示宽度计算测试
+// ============================================
+
+test("getDisplayWidth ASCII 字符宽度为 1", () => {
+  assert.equal(getDisplayWidth("hello"), 5, "ASCII 字符宽度应为 1");
+});
+
+test("getDisplayWidth 中文字符宽度为 2", () => {
+  assert.equal(getDisplayWidth("你好"), 4, "中文字符宽度应为 2");
+});
+
+test("getDisplayWidth 混合字符计算正确", () => {
+  assert.equal(getDisplayWidth("你a好b"), 6, "混合字符 '你a好b' 应为 2+1+2+1=6");
+});
+
+test("getDisplayWidth 空字符串为 0", () => {
+  assert.equal(getDisplayWidth(""), 0, "空字符串宽度应为 0");
+});
+
+test("getDisplayWidth 表情符号宽度为 2", () => {
+  // 大多数终端中 emoji 显示宽度为 2
+  assert.equal(getDisplayWidth("🎉"), 2, "emoji 宽度应为 2");
 });

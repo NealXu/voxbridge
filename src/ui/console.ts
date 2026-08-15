@@ -23,6 +23,26 @@ function summarizeInput(input: unknown): string {
   }
 }
 
+/** 计算字符串的终端显示宽度（考虑中文等宽字符）
+ * 中文、日文、韩文字符通常显示宽度为 2
+ * ASCII 字符宽度为 1
+ */
+export function getDisplayWidth(str: string): number {
+  let width = 0;
+  for (const char of str) {
+    const code = char.codePointAt(0) ?? 0;
+    // CJK 统一汉字范围：U+4E00 - U+9FFF
+    // CJK 扩展范围：U+3400 - U+4DBF, U+20000 - U+2A6DF 等
+    // 简化判断：非 ASCII 字符宽度为 2
+    if (code > 0x7F) {
+      width += 2;
+    } else {
+      width += 1;
+    }
+  }
+  return width;
+}
+
 export function printStatus(text: string): void { process.stdout.write(`\r\x1b[K${YELLOW}${text}${RESET}`); }
 export function printRecognition(text: string): void { process.stdout.write(`\r${GREEN}🎤 ${text}${RESET}\n`); }
 export function printAssistantDelta(text: string): void { process.stdout.write(text); }
@@ -96,10 +116,16 @@ export function renderEditPrompt(text: string, cursor: number): string {
   // 1. 输出文本行 + 提示行（各带换行）
   // 2. 上移两行：\x1b[2A（从当前位置到文本行）
   // 3. 移动到列：\x1b[${col}G（1-indexed）
-  // "🎤 " = 🎤(2字符宽) + 空格(1字符宽) = 3 显示宽度
-  // 文本从第 4 列开始（ANSI 从 1 开始计数）
-  // 光标在第 cursor 个字符处，位置 = 3 + cursor + 1 = 4 + cursor
-  const cursorCol = 4 + cursor; // "🎤 " = 3 显示宽度 + 1(ANSI起点) = 4
+
+  // 计算光标列：
+  // - "🎤 " 前缀：emoji 显示宽度 2 + 空格 1 = 3
+  // - 光标前的文本：需要计算显示宽度（中文字符宽度为 2）
+  // - ANSI 列从 1 开始计数
+  const prefixWidth = 3; // "🎤 " 显示宽度
+  const textBeforeCursor = text.slice(0, cursor);
+  const textWidth = getDisplayWidth(textBeforeCursor);
+  const cursorCol = prefixWidth + textWidth + 1; // +1 因为 ANSI 从 1 开始
+
   const cursorSeq = `\x1b[2A\x1b[${cursorCol}G`;
 
   // 渲染：先输出两行，然后光标定位到文本行
