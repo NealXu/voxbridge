@@ -149,9 +149,9 @@ async function handleStop() {
       await showCancelledThenReady();
       return;
     }
-    // 显示用户输入的提示词（添加到历史）
+    // 编辑已确认，promptEditRecognition 已显示最终文本
+    // 添加到历史
     addPromptToHistory(finalText);
-    process.stdout.write(`${GREEN}🎤 ${finalText}${RESET}\n`);
     const r = await session.send(finalText);
     if (!r.ok) ui.printError(r.error);
     // Agent 执行完成后显示历史和就绪提示

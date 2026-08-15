@@ -220,7 +220,10 @@ export async function promptEditRecognition(text: string): Promise<string | null
 
       if (result.action === "confirm") {
         cleanup();
-        process.stdout.write("\n");
+        // 清除编辑界面（两行），只保留最终文本
+        // 光标已在文本行，清除当前行并重绘文本
+        process.stdout.write(`\r\x1b[K\x1b[1A\x1b[K`); // 清除两行
+        process.stdout.write(`${GREEN}🎤 ${buffer}${RESET}\n`);
         resolve(buffer);
       } else if (result.action === "cancel") {
         cleanup();
