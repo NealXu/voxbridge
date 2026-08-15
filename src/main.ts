@@ -13,6 +13,12 @@ import { join } from "path";
 import { createLoggerFromConfig } from "./logger/factory.js";
 import type { Logger } from "./logger/index.js";
 
+/** ANSI 颜色常量（用于状态显示） */
+const RESET = "\x1b[0m";
+const DIM = "\x1b[2m";
+const GREEN = "\x1b[32m";
+const YELLOW = "\x1b[33m";
+
 const config = loadConfig(process.argv[2] ?? "./config.json");
 const rootLogger: Logger = createLoggerFromConfig(config);
 const log = rootLogger.child("main");
