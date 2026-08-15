@@ -14,7 +14,7 @@ NOISE_MAX_RMS = 1e-2      # 超过此 RMS 且持续足够的时长才可能是�
 MIN_VOICE_MS = 200        # 有效语音最短持续时长
 
 # silero-vad 模型配置
-SILERO_MODEL_URL = "https://github.com/snakers4/silero-vad/raw/master/files/silero_vad.onnx"
+SILERO_MODEL_URL = "https://huggingface.co/deepghs/silero-vad-onnx/resolve/main/silero_vad.onnx"
 SILERO_MODEL_FILENAME = "silero_vad.onnx"
 
 
@@ -108,27 +108,50 @@ class SileroVAD:
             chunks = audio_padded.reshape(-1, 512)
             speech_probs = []
 
-            # 初始化隐藏状态
-            h = np.zeros(2, dtype=np.float32)
-            c = np.zeros(2, dtype=np.float32)
+            # 检测模型输入格式（兼容新旧版本）
+            input_names = [inp.name for inp in self.session.get_inputs()]
+            use_new_format = 'state' in input_names and 'h' not in input_names
 
-            for chunk in chunks:
-                # silero-vad 输入格式
-                inputs = {
-                    'input': chunk.reshape(1, -1).astype(np.float32),
-                    'h': h.reshape(1, -1).astype(np.float32),
-                    'c': c.reshape(1, -1).astype(np.float32),
-                    'sr': np.array([SAMPLE_RATE], dtype=np.int64)
-                }
+            if use_new_format:
+                # 新版 silero-vad (v5+): 使用 state 输入
+                state = np.zeros((2, 1, 128), dtype=np.float32) if 'state' in input_names else np.zeros((2, 1, 64), dtype=np.float32)
 
-                outputs = self.session.run(None, inputs)
-                # outputs: [speech_prob, new_h, new_c]
-                speech_prob = outputs[0][0]
-                speech_probs.append(speech_prob)
+                for chunk in chunks:
+                    inputs = {
+                        'input': chunk.reshape(1, -1).astype(np.float32),
+                        'state': state,
+                        'sr': np.array([SAMPLE_RATE], dtype=np.int64)
+                    }
 
-                # 更新隐藏状态
-                h = outputs[1][0]
-                c = outputs[2][0]
+                    outputs = self.session.run(None, inputs)
+                    # outputs: [speech_prob, new_state]
+                    speech_prob = outputs[0][0]
+                    speech_probs.append(speech_prob)
+
+                    # 更新状态
+                    if len(outputs) > 1:
+                        state = outputs[1]
+            else:
+                # 旧版 silero-vad: 使用 h 和 c 输入
+                h = np.zeros(2, dtype=np.float32)
+                c = np.zeros(2, dtype=np.float32)
+
+                for chunk in chunks:
+                    inputs = {
+                        'input': chunk.reshape(1, -1).astype(np.float32),
+                        'h': h.reshape(1, -1).astype(np.float32),
+                        'c': c.reshape(1, -1).astype(np.float32),
+                        'sr': np.array([SAMPLE_RATE], dtype=np.int64)
+                    }
+
+                    outputs = self.session.run(None, inputs)
+                    # outputs: [speech_prob, new_h, new_c]
+                    speech_prob = outputs[0][0]
+                    speech_probs.append(speech_prob)
+
+                    # 更新隐藏状态
+                    h = outputs[1][0]
+                    c = outputs[2][0]
 
             # 如果任何块的语音概率超过阈值，认为有语音
             max_prob = max(speech_probs) if speech_probs else 0

@@ -3,6 +3,13 @@ import { feedTerminalInput } from "./terminalKeys.js";
 import type { Trigger, TriggerCallbacks } from "./types.js";
 import type { Config } from "../config.js";
 import { createWakeWordTrigger, type WakeWordSttClient } from "./wakeword.js";
+import { appendFileSync } from "fs";
+import { join } from "path";
+
+const LOG_FILE = join(process.cwd(), "voxcode-debug.log");
+function log(msg: string) {
+  appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${msg}\n`);
+}
 
 export * from "./types.js";
 
@@ -67,9 +74,29 @@ export function createGlobalTrigger(key: string): Trigger {
 export function createTerminalTrigger(): Trigger {
   let cb: TriggerCallbacks | null = null;
   let listening = false;
+  let lastToggleTime = 0;
+  const DEBOUNCE_MS = 300; // 防止快速连续触发
+
   const onData = (chunk: Buffer) => {
+    log(`stdin data: ${chunk.toString("hex")} (${chunk.length} bytes)`);
+    // Handle Ctrl+C (0x03) for graceful exit
+    if (chunk.includes(0x03)) {
+      log(`Ctrl+C detected, exiting...`);
+      process.emit("SIGINT");
+      return;
+    }
+
+    const now = Date.now();
     for (const action of feedTerminalInput(chunk.toString())) {
+      log(`action: ${action.kind}`);
       if (action.kind === "toggle") {
+        // 防抖：忽略 300ms 内的重复触发
+        if (now - lastToggleTime < DEBOUNCE_MS) {
+          log(`toggle ignored (debounce: ${now - lastToggleTime}ms < ${DEBOUNCE_MS}ms)`);
+          continue;
+        }
+        lastToggleTime = now;
+
         listening = !listening;
         listening ? cb!.onStartListening() : cb!.onStopListening();
       } else {
@@ -80,10 +107,13 @@ export function createTerminalTrigger(): Trigger {
   return {
     start(c: TriggerCallbacks) {
       cb = c;
+      log(`terminal trigger starting, isTTY=${process.stdin.isTTY}`);
       if (process.stdin.isTTY) process.stdin.setRawMode(true);
       process.stdin.on("data", onData);
+      log(`stdin listener attached`);
     },
     stop() {
+      log(`terminal trigger stopping`);
       process.stdin.off("data", onData);
       if (process.stdin.isTTY) process.stdin.setRawMode(false);
       cb = null;

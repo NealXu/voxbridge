@@ -8,8 +8,14 @@ import type { Trigger } from "./trigger/index.js";
 import { createUI } from "./ui/index.js";
 import type { UI, ToolCallInfo } from "./ui/index.js";
 import type { CompletionStats } from "./executor/index.js";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { homedir } from "os";
+import { join } from "path";
+import { appendFileSync } from "fs";
+
+const LOG_FILE = join(process.cwd(), "voxcode-debug.log");
+function log(msg: string) {
+  appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${msg}\n`);
+}
 
 const config = loadConfig(process.argv[2] ?? "./config.json");
 const SESSION_FILE = join(homedir(), ".voxcode-session.json");
@@ -122,17 +128,21 @@ async function main() {
   trigger = createTrigger(config.trigger);
   trigger.start({
     onStartListening: () => {
+      log(`onStartListening called, recording=${recording}`);
       if (recording) return;
       recording = true;
       stt.start();
       ui.printStatus("🎙 录音中…（松开结束 / Esc 取消）");
+      log(`recording started, status printed`);
     },
     onStopListening: () => {
+      log(`onStopListening called, recording=${recording}`);
       if (!recording) return;
       recording = false;
       void handleStop();
     },
     onCancel: () => {
+      log(`onCancel called, recording=${recording}`);
       recording = false;
       stt.cancel();
       ui.clearStatusLine();
