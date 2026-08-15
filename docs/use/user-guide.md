@@ -1,4 +1,4 @@
-# voxcode 用户指南
+# VoxBridge 用户指南
 
 - **日期**：2026-08-14
 - **版本**：0.2.0
@@ -7,7 +7,7 @@
 
 ## 1. 项目简介
 
-voxcode 是一个语音驱动的 Claude Code CLI。你只需按住 F9 说话，本地 Whisper 将语音转为文本，再经 claude-agent-sdk 启动并控制本地 Claude Code 实例执行（v0.2.0 架构）——因此具备完整编码能力（读写文件、运行命令、调试、Agent Teams 并行协作）。全程静默，无语音回复。
+VoxBridge 是一个语音驱动的 Claude Code CLI。你只需按住 F9 说话，本地 Whisper 将语音转为文本，再经 claude-agent-sdk 启动并控制本地 Claude Code 实例执行（v0.2.0 架构）——因此具备完整编码能力（读写文件、运行命令、调试、Agent Teams 并行协作）。全程静默，无语音回复。
 
 **一句话**：用嘴说话代替打字，让 Claude Code 帮你写代码。
 
@@ -31,8 +31,8 @@ voxcode 是一个语音驱动的 Claude Code CLI。你只需按住 F9 说话，�
 
 ```powershell
 # 1. 克隆项目
-git clone https://github.com/NealXu/voxcode.git
-cd voxcode
+git clone https://github.com/NealXu/voxbridge.git
+cd voxbridge
 
 # 2. 安装 Python 环境 + Whisper 依赖
 #    自动安装 Python 3.12（如未安装）、创建 .venv、安装依赖
@@ -114,12 +114,12 @@ npm start
 | 取消发送 | Esc | 识别后取消，不发送 |
 | 修改文本 | 直接打字 | 识别后直接输入修改，再 Enter |
 | 删除字符 | Backspace | 编辑模式下删除最后一个字符 |
-| 退出程序 | Ctrl+C | 终止 voxcode |
+| 退出程序 | Ctrl+C | 终止 VoxBridge |
 
 ### 5.3 交互时序图
 
 ```
-  你                              voxcode                      AI API
+  你                              VoxBridge                      AI API
   │                                  │                           │
   │── 按住 F9 ──────────────────────>│                           │
   │                                  │── {"type":"start"} ──>    │
@@ -222,15 +222,15 @@ npm start
 ### 6.2 会话管理
 
 - **自动续接**：`agent.resume: true` 时，每次启动自动续接上次会话
-- **会话持久化**：session ID 保存在 `~/.voxcode-session.json`
-- **新建会话**：删除 `~/.voxcode-session.json` 后重启
+- **会话持久化**：session ID 保存在 `~/.voxbridge-session.json`
+- **新建会话**：删除 `~/.voxbridge-session.json` 后重启
 
 ### 6.3 团队协作（Agent Teams）
 
-直接对着麦克风说：**「创建一个 5 人团队，帮我并行重构项目」**。voxcode 会创建一支队友团队，把任务拆成多块并行推进，每个队友独立工作、互不阻塞。
+直接对着麦克风说：**「创建一个 5 人团队，帮我并行重构项目」**。VoxBridge 会创建一支队友团队，把任务拆成多块并行推进，每个队友独立工作、互不阻塞。
 
 ```
-┌─ Agent Teams（voxcode-3fa5c2f1-…）────────┐
+┌─ Agent Teams（voxbridge-3fa5c2f1-…）────────┐
 │  队友                                     │
 │    ● 队友-1  工作中   重构 api/client.ts  │
 │    ● 队友-2  工作中   重构 api/server.ts  │
@@ -257,7 +257,7 @@ npm start
 A: 模型加载需要 10-40 秒（取决于磁盘速度）。首次启动还需下载 3GB 模型。
 
 ### Q: 按 F9 没反应？
-A: 检查麦克风是否可用。voxcode 启动时会检测音频设备，如果无设备会报错。
+A: 检查麦克风是否可用。VoxBridge 启动时会检测音频设备，如果无设备会报错。
 
 ### Q: 识别不准？
 A: 确保环境安静，说话清晰。可尝试切换 `model` 为 `medium`（更快但精度稍低）。

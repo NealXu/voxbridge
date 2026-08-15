@@ -1,16 +1,16 @@
-ï»¿# ===========================================================================
-# voxcode ç«¯åˆ°ç«¯ï¼ˆVoice E2Eï¼‰æ‰‹åŠ¨éªŒè¯è„šæœ¬
+# ===========================================================================
+# VoxBridge ¶Ëµ½¶Ë£¨Voice E2E£©ÊÖ¶¯ÑéÖ¤½Å±¾
 #
-# ç”¨æ³•:
+# ÓÃ·¨:
 #   powershell -ExecutionPolicy Bypass -File scripts/verify-e2e.ps1
 #
-# å¹²è·‘ï¼ˆä¸ç­‰å¾…äººå·¥è¾“å…¥ã€åªè¾“å‡ºæ¸…å•ï¼Œç¡¬ä»¶/å‰ç½®æ£€æŸ¥ç…§å¸¸ï¼‰:
+# ¸ÉÅÜ£¨²»µÈ´ıÈË¹¤ÊäÈë¡¢Ö»Êä³öÇåµ¥£¬Ó²¼ş/Ç°ÖÃ¼ì²éÕÕ³££©:
 #   powershell -ExecutionPolicy Bypass -File scripts/verify-e2e.ps1 -DryRun
 #
-# ä½œç”¨:
-#   1. æ£€æŸ¥å‰ç½®æ¡ä»¶ï¼ˆclaude CLIã€~/.claude/settings.json å‡­æ®ã€Whisper æ¨¡å‹ã€éº¦å…‹é£ï¼‰
-#   2. æ‰“å°æ‰‹åŠ¨éªŒè¯æ¸…å•ï¼ˆå¯åŠ¨ voxcode -> æŒ‰ F9 -> è¯´ "create hello.py" -> æ£€æŸ¥äº§ç‰©ä¸ UIï¼‰
-#   3. é€é¡¹å¾è¯¢é€šè¿‡/å¤±è´¥ï¼Œæ±‡æ€»åè¿”å›é€€å‡ºç ï¼ˆ0=å…¨éƒ¨é€šè¿‡ï¼Œ1=å­˜åœ¨å¤±è´¥é¡¹ï¼‰
+# ×÷ÓÃ:
+#   1. ¼ì²éÇ°ÖÃÌõ¼ş£¨claude CLI¡¢~/.claude/settings.json Æ¾¾İ¡¢Whisper Ä£ĞÍ¡¢Âó¿Ë·ç£©
+#   2. ´òÓ¡ÊÖ¶¯ÑéÖ¤Çåµ¥£¨Æô¶¯ VoxBridge -> °´ F9 -> Ëµ "create hello.py" -> ¼ì²é²úÎïÓë UI£©
+#   3. ÖğÏîÕ÷Ñ¯Í¨¹ı/Ê§°Ü£¬»ã×Üºó·µ»ØÍË³öÂë£¨0=È«²¿Í¨¹ı£¬1=´æÔÚÊ§°ÜÏî£©
 # ===========================================================================
 param(
   [switch]$DryRun
@@ -22,7 +22,7 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 $script:ManualChecks = @()
 
 # --------------------------------------------------------------------------
-# å·¥å…·å‡½æ•°
+# ¹¤¾ßº¯Êı
 # --------------------------------------------------------------------------
 function Write-Section($Title) {
   Write-Host ""
@@ -47,63 +47,63 @@ function Test-Step {
   return $Pass
 }
 
-# è¯»å–é¡¹ç›®é…ç½®ï¼ˆä¼˜å…ˆ config.local.json è¦†ç›–ï¼‰
+# ¶ÁÈ¡ÏîÄ¿ÅäÖÃ£¨ÓÅÏÈ config.local.json ¸²¸Ç£©
 function Get-VoxConfig {
   $localCfg = Join-Path $RepoRoot "config.local.json"
   $cfgPath  = if (Test-Path $localCfg) { $localCfg } else { Join-Path $RepoRoot "config.json" }
   try {
     return Get-Content -Raw -Path $cfgPath | ConvertFrom-Json
   } catch {
-    Write-Host "  [WARN] æ— æ³•è§£æ $cfgPath : $_" -ForegroundColor DarkYellow
+    Write-Host "  [WARN] ÎŞ·¨½âÎö $cfgPath : $_" -ForegroundColor DarkYellow
     return $null
   }
 }
 
-# éº¦å…‹é£æ¢æµ‹ï¼šwinmm.waveInGetNumDevs() > 0 è¡¨ç¤ºæœ¬æœºæœ‰å¯ç”¨å½•éŸ³è®¾å¤‡
+# Âó¿Ë·çÌ½²â£ºwinmm.waveInGetNumDevs() > 0 ±íÊ¾±¾»úÓĞ¿ÉÓÃÂ¼ÒôÉè±¸
 $script:MicCount = -1
 try {
-  Add-Type -Namespace Voxcode -Name WinMM -MemberDefinition @'
+  Add-Type -Namespace VoxBridge -Name WinMM -MemberDefinition @'
 [DllImport("winmm.dll")]
 public static extern uint waveInGetNumDevs();
 '@
-  $script:MicCount = [Voxcode.WinMM]::waveInGetNumDevs()
+  $script:MicCount = [VoxBridge.WinMM]::waveInGetNumDevs()
 } catch {
   $script:MicCount = -1
 }
 
-# å¾è¯¢ä¸€é¡¹æ‰‹åŠ¨æ£€æŸ¥çš„ç»“æœ
+# Õ÷Ñ¯Ò»ÏîÊÖ¶¯¼ì²éµÄ½á¹û
 function Ask-Manual {
   param([string]$Step, [string]$Instruction)
   Write-Host ""
   Write-Host ("  STEP: $Step") -ForegroundColor Yellow
   Write-Host ("        $Instruction") -ForegroundColor Gray
   if ($DryRun) {
-    Write-Host "        [DryRun] è·³è¿‡è¯¢é—®ï¼Œè§†ä¸ºï¼šå¾…äººå·¥ç¡®è®¤" -ForegroundColor DarkGray
+    Write-Host "        [DryRun] Ìø¹ıÑ¯ÎÊ£¬ÊÓÎª£º´ıÈË¹¤È·ÈÏ" -ForegroundColor DarkGray
     return
   }
-  $answer = Read-Host "        è¯¥æ­¥éª¤é€šè¿‡äº†å—? (y=é€šè¿‡ / N=å¤±è´¥)"
+  $answer = Read-Host "        ¸Ã²½ÖèÍ¨¹ıÁËÂğ? (y=Í¨¹ı / N=Ê§°Ü)"
   if ($answer -match "^y") {
     Write-Host "        [PASS]" -ForegroundColor Green
   } else {
     Write-Host "        [FAIL]" -ForegroundColor Red
     $script:FailCount++
-    $script:ManualChecks += "âœ— $Step"
+    $script:ManualChecks += "? $Step"
   }
 }
 
 # --------------------------------------------------------------------------
-# 1. å‰ç½®æ¡ä»¶æ£€æŸ¥
+# 1. Ç°ÖÃÌõ¼ş¼ì²é
 # --------------------------------------------------------------------------
-Write-Section "1/2 å‰ç½®æ¡ä»¶æ£€æŸ¥"
+Write-Section "1/2 Ç°ÖÃÌõ¼ş¼ì²é"
 
 # 1.1 claude CLI
 $claudeCmd = Get-Command claude -ErrorAction SilentlyContinue
-$null = Test-Step "claude CLI å¯ç”¨ï¼ˆGet-Command claudeï¼‰" `
+$null = Test-Step "claude CLI ¿ÉÓÃ£¨Get-Command claude£©" `
   -Pass ($null -ne $claudeCmd) `
-  -Detail "è¯·å…ˆå®‰è£… Claude Codeï¼šnpm install -g @anthropic-ai/claude-code"
+  -Detail "ÇëÏÈ°²×° Claude Code£ºnpm install -g @anthropic-ai/claude-code"
 if ($claudeCmd) { Write-Host "        -> $($claudeCmd.Source)" -ForegroundColor DarkGray }
 
-# 1.2 API å‡­æ®ï¼ˆ~/.claude/settings.json çš„ env å—ï¼‰
+# 1.2 API Æ¾¾İ£¨~/.claude/settings.json µÄ env ¿é£©
 $userSettings = Join-Path $env:USERPROFILE ".claude\settings.json"
 $hasToken = $false
 if (Test-Path $userSettings) {
@@ -112,11 +112,11 @@ if (Test-Path $userSettings) {
     $hasToken = $null -ne $settings.env.ANTHROPIC_AUTH_TOKEN -or $null -ne $settings.env.ANTHROPIC_API_KEY
   } catch { $hasToken = $false }
 }
-$null = Test-Step "API å‡­æ®å­˜åœ¨ï¼ˆ~/.claude/settings.json env å—å« Auth Token/API Keyï¼‰" `
+$null = Test-Step "API Æ¾¾İ´æÔÚ£¨~/.claude/settings.json env ¿éº¬ Auth Token/API Key£©" `
   -Pass $hasToken `
-  -Detail "è¯·è®¾ç½® ANTHROPIC_AUTH_TOKENï¼ˆæˆ– ANTHROPIC_API_KEYï¼‰åå†è¿è¡Œ"
+  -Detail "ÇëÉèÖÃ ANTHROPIC_AUTH_TOKEN£¨»ò ANTHROPIC_API_KEY£©ºóÔÙÔËĞĞ"
 
-# 1.3 Whisper æ¨¡å‹ç›®å½•
+# 1.3 Whisper Ä£ĞÍÄ¿Â¼
 $config = Get-VoxConfig
 $modelDir = ""
 if ($config -and $config.stt.model_dir) {
@@ -126,83 +126,83 @@ if ($config -and $config.stt.model_dir) {
 }
 $modelBin = Join-Path $modelDir "model.bin"
 $modelDirOk = Test-Path $modelBin
-$null = Test-Step "Whisper æ¨¡å‹å­˜åœ¨ï¼ˆ$modelDir\model.binï¼‰" `
+$null = Test-Step "Whisper Ä£ĞÍ´æÔÚ£¨$modelDir\model.bin£©" `
   -Pass $modelDirOk `
-  -Detail "æ¨¡å‹ç›®å½•æœªå°±ç»ªï¼Œè¯·è¿è¡Œï¼š$($config.stt.python_path) scripts/download-model.py ï¼ˆæˆ–ç”±å¯åŠ¨è„šæœ¬è‡ªåŠ¨ä¸‹è½½ï¼‰"
+  -Detail "Ä£ĞÍÄ¿Â¼Î´¾ÍĞ÷£¬ÇëÔËĞĞ£º$($config.stt.python_path) scripts/download-model.py £¨»òÓÉÆô¶¯½Å±¾×Ô¶¯ÏÂÔØ£©"
 
-# 1.4 éº¦å…‹é£
+# 1.4 Âó¿Ë·ç
 $micOk = $script:MicCount -gt 0
 $micDetail = if ($script:MicCount -lt 0) {
-  "æ— æ³•æ¢æµ‹å½•éŸ³è®¾å¤‡ï¼ˆå¯èƒ½åœ¨å—é™ç¯å¢ƒï¼‰ã€‚è¯·æ‰‹åŠ¨ç¡®è®¤éº¦å…‹é£å·²è¿æ¥ä¸”æœªè¢«ç¦ç”¨ã€‚"
+  "ÎŞ·¨Ì½²âÂ¼ÒôÉè±¸£¨¿ÉÄÜÔÚÊÜÏŞ»·¾³£©¡£ÇëÊÖ¶¯È·ÈÏÂó¿Ë·çÒÑÁ¬½ÓÇÒÎ´±»½ûÓÃ¡£"
 } elseif ($script:MicCount -eq 0) {
-  "ç³»ç»ŸæŠ¥å‘Š 0 ä¸ªå½•éŸ³è®¾å¤‡ã€‚è¯·è¿æ¥éº¦å…‹é£ï¼Œæˆ–æ£€æŸ¥ Windows éšç§è®¾ç½®å…è®¸åº”ç”¨ä½¿ç”¨éº¦å…‹é£ã€‚"
+  "ÏµÍ³±¨¸æ 0 ¸öÂ¼ÒôÉè±¸¡£ÇëÁ¬½ÓÂó¿Ë·ç£¬»ò¼ì²é Windows ÒşË½ÉèÖÃÔÊĞíÓ¦ÓÃÊ¹ÓÃÂó¿Ë·ç¡£"
 } else {
-  "æ¢æµ‹åˆ° $script:MicCount ä¸ªå½•éŸ³è®¾å¤‡ã€‚"
+  "Ì½²âµ½ $script:MicCount ¸öÂ¼ÒôÉè±¸¡£"
 }
-$null = Test-Step "éº¦å…‹é£å¯ç”¨ï¼ˆæ£€æµ‹åˆ° $($script:MicCount) ä¸ªå½•éŸ³è®¾å¤‡ï¼‰" `
+$null = Test-Step "Âó¿Ë·ç¿ÉÓÃ£¨¼ì²âµ½ $($script:MicCount) ¸öÂ¼ÒôÉè±¸£©" `
   -Pass $micOk `
   -Detail $micDetail
 
-# 1.5 æµ‹è¯•è„šæ‰‹æ¶ï¼ˆå¯é€‰ï¼Œç”¨äº SDK é›†æˆæµ‹è¯•ï¼‰
+# 1.5 ²âÊÔ½ÅÊÖ¼Ü£¨¿ÉÑ¡£¬ÓÃÓÚ SDK ¼¯³É²âÊÔ£©
 $claudeAvailable = $null -ne $claudeCmd
-$null = Test-Step "SDK ç«¯åˆ°ç«¯æµ‹è¯•å¯å¯ç”¨ï¼ˆCLAUDE_INTEGRATION=1 æ—¶ä¸å¾—è·³è¿‡ï¼‰" `
+$null = Test-Step "SDK ¶Ëµ½¶Ë²âÊÔ¿ÉÆôÓÃ£¨CLAUDE_INTEGRATION=1 Ê±²»µÃÌø¹ı£©" `
   -Pass $claudeAvailable `
-  -Detail "claude CLI ç¼ºå¤±æ—¶ tests/claudeIntegration.test.ts ä¼šåœ¨å‰ç½®æ£€æŸ¥ç¯èŠ‚è‡ªåŠ¨è·³è¿‡"
+  -Detail "claude CLI È±Ê§Ê± tests/claudeIntegration.test.ts »áÔÚÇ°ÖÃ¼ì²é»·½Ú×Ô¶¯Ìø¹ı"
 
 # --------------------------------------------------------------------------
-# 2. æ‰‹åŠ¨éªŒè¯æ¸…å•
+# 2. ÊÖ¶¯ÑéÖ¤Çåµ¥
 # --------------------------------------------------------------------------
-Write-Section "2/2 æ‰‹åŠ¨éªŒè¯æ¸…å•ï¼ˆè¯­éŸ³ç«¯åˆ°ç«¯ï¼‰"
+Write-Section "2/2 ÊÖ¶¯ÑéÖ¤Çåµ¥£¨ÓïÒô¶Ëµ½¶Ë£©"
 
 Write-Host ""
-Write-Host "  æç¤ºï¼šä»¥ä¸‹æ£€æŸ¥éœ€è¦ä½ äº²è‡ªæ“ä½œå®Œæˆã€‚è¯­éŸ³è¯†åˆ«ã€æ¨¡å‹è¾“å‡ºå­˜åœ¨ä¸ªä½“å·®å¼‚ï¼Œ" -ForegroundColor Gray
-Write-Host "  è¯·æŠŠæ¯æ¬¡æ“ä½œçš„å®é™…ç°è±¡ä¸é¢„æœŸå¯¹æ¯”åå†ä½œç­”ã€‚" -ForegroundColor Gray
+Write-Host "  ÌáÊ¾£ºÒÔÏÂ¼ì²éĞèÒªÄãÇ××Ô²Ù×÷Íê³É¡£ÓïÒôÊ¶±ğ¡¢Ä£ĞÍÊä³ö´æÔÚ¸öÌå²îÒì£¬" -ForegroundColor Gray
+Write-Host "  Çë°ÑÃ¿´Î²Ù×÷µÄÊµ¼ÊÏÖÏóÓëÔ¤ÆÚ¶Ô±ÈºóÔÙ×÷´ğ¡£" -ForegroundColor Gray
 
 # 2.1
-Ask-Manual -Step "å¯åŠ¨ voxcode" -Instruction "åœ¨é¡¹ç›®æ ¹ç›®å½•æ‰§è¡Œ npm startï¼Œè§‚å¯Ÿåˆ°å°±ç»ªæ¨ªå¹…ã€Œå°±ç»ªï¼ŒæŒ‰ F9 è¯´è¯ã€"
+Ask-Manual -Step "Æô¶¯ VoxBridge" -Instruction "ÔÚÏîÄ¿¸ùÄ¿Â¼Ö´ĞĞ npm start£¬¹Û²ìµ½¾ÍĞ÷ºá·ù¡¸¾ÍĞ÷£¬°´ F9 Ëµ»°¡¹"
 # 2.2
-Ask-Manual -Step "æŒ‰ä½ F9 è¯´è¯"  -Instruction "æŒ‰ä½ F9ï¼Œå‡ºç°ã€ŒğŸ™ å½•éŸ³ä¸­ã€ï¼Œè¯´ï¼šcreate hello.py"
+Ask-Manual -Step "°´×¡ F9 Ëµ»°"  -Instruction "°´×¡ F9£¬³öÏÖ¡¸?? Â¼ÒôÖĞ¡¹£¬Ëµ£ºcreate hello.py"
 # 2.3
-Ask-Manual -Step "è¯†åˆ«ç»“æœç¡®è®¤" -Instruction "æ¾å¼€ F9ï¼ŒUI åº”æ˜¾ç¤ºè¯†åˆ«æ–‡æœ¬ã€Œcreate hello.pyã€ï¼›æŒ‰ Enter å‘é€"
+Ask-Manual -Step "Ê¶±ğ½á¹ûÈ·ÈÏ" -Instruction "ËÉ¿ª F9£¬UI Ó¦ÏÔÊ¾Ê¶±ğÎÄ±¾¡¸create hello.py¡¹£»°´ Enter ·¢ËÍ"
 # 2.4
-Ask-Manual -Step "æ–‡ä»¶äº§ç‰©å‡ºç°" -Instruction "ç­‰å¾…æ‰§è¡Œç»“æŸï¼Œç¡®è®¤ cwd ä¸‹å‡ºç° hello.pyï¼ˆå¯ç”¨ ls hello.py æˆ–èµ„æºç®¡ç†å™¨æ ¸å¯¹ï¼‰"
+Ask-Manual -Step "ÎÄ¼ş²úÎï³öÏÖ" -Instruction "µÈ´ıÖ´ĞĞ½áÊø£¬È·ÈÏ cwd ÏÂ³öÏÖ hello.py£¨¿ÉÓÃ ls hello.py »ò×ÊÔ´¹ÜÀíÆ÷ºË¶Ô£©"
 # 2.5
-Ask-Manual -Step "UI å±•ç¤ºå·¥å…·è°ƒç”¨" -Instruction "æ‰§è¡ŒæœŸé—´ UI åº”é€è¡Œæ˜¾ç¤ºå·¥å…·è°ƒç”¨ï¼ˆå¦‚ â–¶ Read / â–¶ Write / â–¶ Bashï¼‰"
+Ask-Manual -Step "UI Õ¹Ê¾¹¤¾ßµ÷ÓÃ" -Instruction "Ö´ĞĞÆÚ¼ä UI Ó¦ÖğĞĞÏÔÊ¾¹¤¾ßµ÷ÓÃ£¨Èç ? Read / ? Write / ? Bash£©"
 # 2.6
-Ask-Manual -Step "å®Œæˆä»»åŠ¡ç»Ÿè®¡"  -Instruction "æ‰§è¡Œç»“æŸå UI åº”æ˜¾ç¤ºå®ŒæˆçŠ¶æ€ä¸è€—æ—¶ï¼ˆå¦‚ âœ“ completeï¼Œduration/costï¼‰"
+Ask-Manual -Step "Íê³ÉÈÎÎñÍ³¼Æ"  -Instruction "Ö´ĞĞ½áÊøºó UI Ó¦ÏÔÊ¾Íê³É×´Ì¬ÓëºÄÊ±£¨Èç ? complete£¬duration/cost£©"
 # 2.7
-Ask-Manual -Step "ä¼šè¯ç»­æ¥ï¼ˆå¯é€‰ï¼‰" -Instruction "å†æ¬¡æŒ‰ä½ F9 è¯´ã€Œåœ¨ hello.py é‡ŒåŠ ä¸€è¡Œæ³¨é‡Šã€ï¼Œç¡®è®¤åŒä¸€ä¼šè¯ç»­æ¥å¹¶ä¿®æ”¹æ–‡ä»¶"
+Ask-Manual -Step "»á»°Ğø½Ó£¨¿ÉÑ¡£©" -Instruction "ÔÙ´Î°´×¡ F9 Ëµ¡¸ÔÚ hello.py Àï¼ÓÒ»ĞĞ×¢ÊÍ¡¹£¬È·ÈÏÍ¬Ò»»á»°Ğø½Ó²¢ĞŞ¸ÄÎÄ¼ş"
 
 # --------------------------------------------------------------------------
-# 3. SDK é›†æˆæµ‹è¯•æç¤º
+# 3. SDK ¼¯³É²âÊÔÌáÊ¾
 # --------------------------------------------------------------------------
 Write-Host ""
-Write-Section "é™„: SDK é›†æˆæµ‹è¯•å‘½ä»¤ï¼ˆè‡ªåŠ¨æµ‹è¯•ï¼Œéè¯­éŸ³ï¼‰"
+Write-Section "¸½: SDK ¼¯³É²âÊÔÃüÁî£¨×Ô¶¯²âÊÔ£¬·ÇÓïÒô£©"
 Write-Host ""
-Write-Host "  é»˜è®¤ï¼ˆè·³è¿‡é›†æˆæµ‹è¯•ï¼Œä»…å•å…ƒæµ‹è¯•ï¼Œåº”å…¨éƒ¨é€šè¿‡ï¼‰:"
+Write-Host "  Ä¬ÈÏ£¨Ìø¹ı¼¯³É²âÊÔ£¬½öµ¥Ôª²âÊÔ£¬Ó¦È«²¿Í¨¹ı£©:"
 Write-Host "      npm test" -ForegroundColor Gray
 Write-Host ""
-Write-Host "  è·‘çœŸå® claude è¿›ç¨‹çš„é›†æˆæµ‹è¯•:"
+Write-Host "  ÅÜÕæÊµ claude ½ø³ÌµÄ¼¯³É²âÊÔ:"
 Write-Host "      CLAUDE_INTEGRATION=1 npm test" -ForegroundColor Gray
 Write-Host ""
-Write-Host "  é¢å¤–å¼€å¯ Agent Teams é›†æˆæµ‹è¯•:"
+Write-Host "  ¶îÍâ¿ªÆô Agent Teams ¼¯³É²âÊÔ:"
 Write-Host "      CLAUDE_INTEGRATION=1 CLAUDE_TEAM_INTEGRATION=1 npm test" -ForegroundColor Gray
 Write-Host ""
-Write-Host "  è¯¦è§ docs/arch/e2e-verification.md" -ForegroundColor Gray
+Write-Host "  Ïê¼û docs/arch/e2e-verification.md" -ForegroundColor Gray
 
 # --------------------------------------------------------------------------
-# æ±‡æ€»
+# »ã×Ü
 # --------------------------------------------------------------------------
-Write-Section "éªŒè¯ç»“æœæ±‡æ€»"
+Write-Section "ÑéÖ¤½á¹û»ã×Ü"
 if ($script:FailCount -gt 0) {
-  Write-Host "  å­˜åœ¨ $script:FailCount é¡¹å¤±è´¥ã€‚" -ForegroundColor Red
+  Write-Host "  ´æÔÚ $script:FailCount ÏîÊ§°Ü¡£" -ForegroundColor Red
   foreach ($item in $script:ManualChecks) {
     Write-Host "    $item" -ForegroundColor Red
   }
   Write-Host ""
-  Write-Host "  è¯·è§£å†³ä¸Šè¿°é—®é¢˜åé‡è·‘æœ¬è„šæœ¬ã€‚" -ForegroundColor DarkYellow
+  Write-Host "  Çë½â¾öÉÏÊöÎÊÌâºóÖØÅÜ±¾½Å±¾¡£" -ForegroundColor DarkYellow
   exit 1
 } else {
-  Write-Host "  å…¨éƒ¨å‰ç½®æ¡ä»¶é€šè¿‡ï¼Œæ‰‹åŠ¨æ£€æŸ¥é¡¹å·²é€é¡¹ç¡®è®¤ï¼ˆDryRun æ¨¡å¼é™¤å¤–ï¼‰ã€‚" -ForegroundColor Green
+  Write-Host "  È«²¿Ç°ÖÃÌõ¼şÍ¨¹ı£¬ÊÖ¶¯¼ì²éÏîÒÑÖğÏîÈ·ÈÏ£¨DryRun Ä£Ê½³ıÍâ£©¡£" -ForegroundColor Green
   exit 0
 }

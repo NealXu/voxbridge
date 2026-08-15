@@ -102,7 +102,7 @@ test("formatRecord: 空 meta 不追加空格", () => {
 });
 
 test("FileTransport: 异步写盘 + flush 等待队列清空", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "voxcode-log-"));
+  const dir = await mkdtemp(join(tmpdir(), "voxbridge-log-"));
   try {
     const ft = new FileTransport({ dir, maxSize: 1024 * 1024, maxFiles: 3 });
     const log = createLogger({ level: "info", transports: [ft] });
@@ -112,7 +112,7 @@ test("FileTransport: 异步写盘 + flush 等待队列清空", async () => {
     await ft.close();
     const files = await readdir(dir);
     assert.equal(files.length, 1, "应生成一个日志文件");
-    assert.match(files[0], /^voxcode\.\d{4}-\d{2}-\d{2}\.log$/);
+    assert.match(files[0], /^voxbridge\.\d{4}-\d{2}-\d{2}\.log$/);
     const content = await readFile(join(dir, files[0]), "utf8");
     assert.match(content, /line1 n=1/);
     assert.match(content, /line2 n=2/);
@@ -122,7 +122,7 @@ test("FileTransport: 异步写盘 + flush 等待队列清空", async () => {
 });
 
 test("FileTransport: 超过 maxSize 触发轮转", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "voxcode-log-rot-"));
+  const dir = await mkdtemp(join(tmpdir(), "voxbridge-log-rot-"));
   try {
     // maxSize 很小，强制轮转
     const ft = new FileTransport({ dir, maxSize: 100, maxFiles: 2 });
@@ -144,7 +144,7 @@ test("FileTransport: 超过 maxSize 触发轮转", async () => {
 });
 
 test("FileTransport: 背压 — 队列满时丢弃最旧", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "voxcode-log-bp-"));
+  const dir = await mkdtemp(join(tmpdir(), "voxbridge-log-bp-"));
   try {
     const ft = new FileTransport({ dir, queueCapacity: 5 });
     // 通过 write 同步塞满
@@ -241,7 +241,7 @@ test("ConsoleTransport: NO_COLOR 强制无色", () => {
 });
 
 test("createRootLogger: 默认不抛错", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "voxcode-log-fac-"));
+  const dir = await mkdtemp(join(tmpdir(), "voxbridge-log-fac-"));
   try {
     const log = createRootLogger({ dir, enableConsole: false });
     const log2 = createRootLogger({ dir, level: "warn", enableConsole: false });
@@ -255,7 +255,7 @@ test("createRootLogger: 默认不抛错", async () => {
 });
 
 test("createRootLogger: VOXCODE_LOG_LEVEL 覆盖配置文件级别", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "voxcode-log-env-"));
+  const dir = await mkdtemp(join(tmpdir(), "voxbridge-log-env-"));
   const orig = process.env.VOXCODE_LOG_LEVEL;
   process.env.VOXCODE_LOG_LEVEL = "error";
   try {

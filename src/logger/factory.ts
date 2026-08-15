@@ -2,7 +2,7 @@
  * 根 logger 工厂：根据 Config 创建统一的 logger 实例。
  *
  * 默认行为：
- * - 文件 transport 始终启用，写入 `config.logging.dir`（默认 `~/.voxcode/logs`）。
+ * - 文件 transport 始终启用，写入 `config.logging.dir`（默认 `~/.voxbridge/logs`）。
  * - 控制台 transport 通过 `config.logging.enableConsole` 或 `VOXCODE_LOG_CONSOLE=1` 开启。
  * - 级别通过 `config.logging.level` 或 `VOXCODE_LOG_LEVEL` 环境变量覆盖。
  *
@@ -38,7 +38,7 @@ export function createRootLogger(logging: LoggingConfig | undefined): Logger {
   // 文件 transport 始终启用
   transports.push(
     new FileTransport({
-      dir: cfg.dir ?? "~/.voxcode/logs",
+      dir: cfg.dir ?? "~/.voxbridge/logs",
       maxSize: cfg.maxSize,
       maxFiles: cfg.maxFiles,
     })

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { loadSession, DEFAULT_SESSION_TTL_MS, saveSessionId } from "../src/session/persistSession.js";
 
 function makeTempFile(): string {
-  const dir = join(tmpdir(), `voxcode-test-${Math.random().toString(36).slice(2)}`);
+  const dir = join(tmpdir(), `voxbridge-test-${Math.random().toString(36).slice(2)}`);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   return join(dir, "session.json");
 }

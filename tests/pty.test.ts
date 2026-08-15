@@ -89,7 +89,7 @@ function makeSession(
 // ---------------------------------------------------------------------------
 
 test('escapeCwdToProjectDir maps a Windows backslash cwd to dashed form', () => {
-  assert.equal(escapeCwdToProjectDir('D:\\Codes\\voxcode'), 'D--Codes-voxcode')
+  assert.equal(escapeCwdToProjectDir('D:\\Codes\\voxbridge'), 'D--Codes-voxbridge')
 })
 
 test('escapeCwdToProjectDir maps a unix forward-slash cwd to dashed form', () => {
@@ -158,10 +158,10 @@ test('jsonlPath escapes a Windows drive path into the project dir (win32)', asyn
   if (process.platform !== 'win32') return // windows-specific case-assertion
   const tempDir = await mkdtemp(join(tmpdir(), 'pty-test-'))
   try {
-    const cwd = 'D:\\Codes\\voxcode' // fixed absolute win32 cwd
+    const cwd = 'D:\\Codes\\voxbridge' // fixed absolute win32 cwd
     const mock = createMockPty()
     const { session } = makeSession({ cwd, resume: 'win-1' }, join(tempDir, 'cfg.json'), mock)
-    assert.ok(session.jsonlPath.includes('projects\\D--Codes-voxcode\\win-1.jsonl'))
+    assert.ok(session.jsonlPath.includes('projects\\D--Codes-voxbridge\\win-1.jsonl'))
   } finally {
     await rm(tempDir, { recursive: true, force: true })
   }

@@ -103,7 +103,7 @@ const DEFAULTS: Config = {
   },
   logging: {
     level: "info",
-    dir: "~/.voxcode/logs",
+    dir: "~/.voxbridge/logs",
     maxSize: 10 * 1024 * 1024,
     maxFiles: 5,
     enableConsole: false,

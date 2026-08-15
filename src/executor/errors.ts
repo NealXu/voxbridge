@@ -9,7 +9,7 @@
  */
 
 /**
- * Canonical error codes for voxcode execution failures.
+ * Canonical error codes for VoxBridge execution failures.
  *
  * Categories:
  * - Environment problems (mic, model, Claude Code CLI not found)
