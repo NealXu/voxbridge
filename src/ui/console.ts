@@ -82,22 +82,22 @@ export function printDownloadProgress(progress: number, message: string): void {
 }
 
 /** 处理编辑模式的按键输入，返回新的缓冲区状态和动作 */
-export function processEditKey(buffer: string, chunk: Buffer): { buffer: string; action: "confirm" | "cancel" | "continue" } {
+export function processEditKey(buffer: string, chunk: Buffer, hasEdited: boolean): { buffer: string; action: "confirm" | "cancel" | "continue"; hasEdited: boolean } {
   // Enter (CR or LF)
   if (chunk.includes(0x0d) || chunk.includes(0x0a)) {
-    return { buffer, action: "confirm" };
+    return { buffer, action: "confirm", hasEdited };
   }
 
   // Esc
   if (chunk.includes(0x1b)) {
-    return { buffer: "", action: "cancel" };
+    return { buffer: "", action: "cancel", hasEdited };
   }
 
   // Backspace: DEL (0x7f) or BS (0x08)
   if (chunk.includes(0x7f) || chunk.includes(0x08)) {
-    if (buffer.length === 0) return { buffer: "", action: "continue" };
+    if (buffer.length === 0) return { buffer: "", action: "continue", hasEdited };
     // Remove last character (handles UTF-8 properly)
-    return { buffer: buffer.slice(0, -1), action: "continue" };
+    return { buffer: buffer.slice(0, -1), action: "continue", hasEdited: true };
   }
 
   // Regular printable characters - append to buffer
@@ -106,16 +106,19 @@ export function processEditKey(buffer: string, chunk: Buffer): { buffer: string;
     // Filter out control characters but keep printable chars including unicode
     const printable = text.replace(/[\x00-\x1f\x7f-\x9f]/g, "");
     if (printable.length > 0) {
-      return { buffer: buffer + printable, action: "continue" };
+      // 第一次输入时清空原有识别结果（替换模式），后续追加
+      const newBuffer = hasEdited ? buffer + printable : printable;
+      return { buffer: newBuffer, action: "continue", hasEdited: true };
     }
   }
 
-  return { buffer, action: "continue" };
+  return { buffer, action: "continue", hasEdited };
 }
 
 /** 显示识别文本并等待用户确认/编辑，返回最终文本或 null（取消） */
 export async function promptEditRecognition(text: string): Promise<string | null> {
   let buffer = text;
+  let hasEdited = false;
 
   // Print initial prompt
   const render = () => {
@@ -129,8 +132,9 @@ export async function promptEditRecognition(text: string): Promise<string | null
 
   return new Promise<string | null>((resolve) => {
     const onData = (chunk: Buffer) => {
-      const result = processEditKey(buffer, chunk);
+      const result = processEditKey(buffer, chunk, hasEdited);
       buffer = result.buffer;
+      hasEdited = result.hasEdited;
 
       if (result.action === "confirm") {
         cleanup();
