@@ -44,7 +44,35 @@ def main() -> None:
     parser.add_argument("--model", default="large-v3")
     parser.add_argument("--model-dir", default=r"D:\Models\faster-whisper-large-v3")
     parser.add_argument("--language", default="zh")
+    # VAD 参数（可选，全部有合理默认值）— Node 端通过 config.json 的 stt.vad 透传
+    parser.add_argument("--vad-threshold", type=float, default=None,
+                        help="silero-vad 语音概率阈值 (0-1)，默认 0.45")
+    parser.add_argument("--vad-min-voice-ms", type=int, default=None,
+                        help="有效语音最短持续时长 (ms)，默认 200")
+    parser.add_argument("--vad-silence-rms", type=float, default=None,
+                        help="静音 RMS 阈值，默认 1e-4")
+    parser.add_argument("--vad-noise-max-rms", type=float, default=None,
+                        help="有声 RMS 阈值，默认 1e-2")
+    parser.add_argument("--vad-chunk-ms", type=int, default=None,
+                        help="VAD 处理块大小 (ms)，默认 32")
+    parser.add_argument("--vad-endpoint-silence-ms", type=int, default=None,
+                        help="端点检测：静音超过此时长切分 (ms)，默认 800")
     args = parser.parse_args()
+
+    # 应用 VAD 参数到 vad 模块的全局常量（在 get_vad() 调用前）
+    from stt_worker import vad as vad_module
+    if args.vad_threshold is not None:
+        vad_module.DEFAULT_THRESHOLD = args.vad_threshold
+    if args.vad_min_voice_ms is not None:
+        vad_module.MIN_VOICE_MS = args.vad_min_voice_ms
+    if args.vad_silence_rms is not None:
+        vad_module.SILENCE_RMS = args.vad_silence_rms
+    if args.vad_noise_max_rms is not None:
+        vad_module.NOISE_MAX_RMS = args.vad_noise_max_rms
+    if args.vad_chunk_ms is not None:
+        vad_module.CHUNK_MS = args.vad_chunk_ms
+    if args.vad_endpoint_silence_ms is not None:
+        vad_module.ENDPOINT_SILENCE_MS = args.vad_endpoint_silence_ms
 
     # 启动时一次性加载 Whisper 模型（首次数秒、数 GB 内存），加载完成才发 ready。
     engine = WhisperEngine(args.model_dir)

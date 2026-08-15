@@ -12,6 +12,9 @@ SAMPLE_RATE = 16000
 SILENCE_RMS = 1e-4        # 低于此 RMS 视为静音（fallback用）
 NOISE_MAX_RMS = 1e-2      # 超过此 RMS 且持续足够的时长才可能是有声（fallback用）
 MIN_VOICE_MS = 200        # 有效语音最短持续时长
+CHUNK_MS = 32             # VAD 处理块大小（ms），对应 512 样本 @ 16kHz
+ENDPOINT_SILENCE_MS = 800 # 端点检测：静音超过此时长切分
+DEFAULT_THRESHOLD = 0.45  # silero-vad 默认语音概率阈值
 
 # silero-vad 模型配置
 SILERO_MODEL_URL = "https://huggingface.co/deepghs/silero-vad-onnx/resolve/main/silero_vad.onnx"
@@ -75,16 +78,18 @@ class SileroVAD:
             self.session = None
             self._model_loaded = False
 
-    def is_speech(self, audio: np.ndarray, threshold: float = 0.5) -> bool:
+    def is_speech(self, audio: np.ndarray, threshold: float = None) -> bool:
         """检测音频是否包含语音。
 
         Args:
             audio: 音频数据（float32，16kHz）
-            threshold: 语音检测阈值（0-1）
+            threshold: 语音检测阈值（0-1），默认使用 DEFAULT_THRESHOLD
 
         Returns:
             True 如果检测到语音，False 否则
         """
+        if threshold is None:
+            threshold = DEFAULT_THRESHOLD
         # 如果模型未加载，使用能量阈值 fallback
         if not self._model_loaded or self.session is None:
             return self._energy_based_detection(audio)
@@ -92,20 +97,21 @@ class SileroVAD:
         try:
             # silero-vad 需要 512 样本的块（32ms @ 16kHz）
             # 对短音频特殊处理
-            if len(audio) < 512:
+            chunk_samples = int(SAMPLE_RATE * CHUNK_MS / 1000)
+            if len(audio) < chunk_samples:
                 return False
 
             # 运行模型推理
             # silero-vad 输入：[batch, 512] float32
             # 输出：speech_prob
             audio_padded = audio.copy()
-            if len(audio_padded) % 512 != 0:
-                # 填充到 512 的整数倍
-                pad_size = 512 - (len(audio_padded) % 512)
+            if len(audio_padded) % chunk_samples != 0:
+                # 填充到 chunk_samples 的整数倍
+                pad_size = chunk_samples - (len(audio_padded) % chunk_samples)
                 audio_padded = np.pad(audio_padded, (0, pad_size), mode='constant')
 
             # 分块处理
-            chunks = audio_padded.reshape(-1, 512)
+            chunks = audio_padded.reshape(-1, chunk_samples)
             speech_probs = []
 
             # 检测模型输入格式（兼容新旧版本）
