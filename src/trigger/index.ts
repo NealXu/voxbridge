@@ -15,6 +15,11 @@ export function createGlobalTrigger(key: string, logger?: Logger): Trigger {
   let listening = false;
 
   const onStdinData = (chunk: Buffer) => {
+    // 诊断：记录每次 stdin 数据的字节数 + hex（前 16 字节），用于排查 F9 触发的 cancel 来源
+    log?.debug("stdin data", {
+      len: chunk.length,
+      hex: chunk.subarray(0, 16).toString("hex"),
+    });
     // 只把「单字节的孤立 ESC」视为取消。
     // 多字节 ESC 序列（F9 = ESC [ 2 0 ~ 或 ESC O Q，方向键等）一律忽略 —
     // 全局热键模式下 F9 由 OS 层监听，terminal 收到的 ESC 序列是副作用，不能当取消。
