@@ -198,8 +198,9 @@ export async function promptEditRecognition(text: string): Promise<string | null
 
   // Render two-line format: text + hints, cursor positioned via ANSI
   const render = () => {
-    // Clear previous content (2 lines) and render new
-    process.stdout.write(`\r\x1b[K\x1b[1A\x1b[K`); // Clear up to 2 lines
+    // 光标在文本行。清除从当前位置到屏幕底部，然后重新渲染。
+    // \x1b[J 清除从光标到屏幕末尾
+    process.stdout.write(`\r\x1b[J`);
     process.stdout.write(renderEditPrompt(buffer, cursor));
   };
 
@@ -222,13 +223,13 @@ export async function promptEditRecognition(text: string): Promise<string | null
         cleanup();
         // 清除编辑界面（两行），只保留最终文本
         // 光标已在文本行，清除当前行并重绘文本
-        process.stdout.write(`\r\x1b[K\x1b[1A\x1b[K`); // 清除两行
+        process.stdout.write(`\r\x1b[J`); // 清除从当前位置到屏幕末尾
         process.stdout.write(`${GREEN}🎤 ${buffer}${RESET}\n`);
         resolve(buffer);
       } else if (result.action === "cancel") {
         cleanup();
         // 清除编辑界面，不显示"已取消"（由调用方处理）
-        process.stdout.write(`\r\x1b[K\x1b[1A\x1b[K`);
+        process.stdout.write(`\r\x1b[J`);
         resolve(null);
       } else {
         render();
