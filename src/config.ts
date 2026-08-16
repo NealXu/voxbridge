@@ -6,6 +6,25 @@ export interface Config {
     model_dir: string;
     language: string;
     python_path: string;
+    /** STT 引擎选择：whisper, sensevoice, paraformer（默认 whisper） */
+    engine?: "whisper" | "sensevoice" | "paraformer";
+    /** Worker 类型：auto（默认）, python, exe, cloud, native */
+    workerType?: "auto" | "python" | "exe" | "cloud" | "native";
+    /** Worker 路径：可以是 asr.exe 或 python 脚本路径（可选） */
+    workerPath?: string;
+    /** Python 路径别名（兼容 worker_path） */
+    pythonPath?: string;
+    /** Fallback 引擎（可选） */
+    fallback?: "whisper" | "sensevoice" | "paraformer";
+    /** 云 API 配置（预留） */
+    cloud?: {
+      provider?: "alibaba" | "tencent" | "azure" | "google";
+      apiKey?: string;
+      endpoint?: string;
+      region?: string;
+    };
+    /** Worker 路径（旧字段，兼容性） */
+    worker_path?: string;
     plugin?: "whisper" | "webspeech";
     webspeech?: {
       language?: string;
@@ -71,6 +90,9 @@ const DEFAULTS: Config = {
     model_dir: "D:\\Models\\faster-whisper-large-v3",
     language: "zh",
     python_path: ".venv\\Scripts\\python.exe",
+    engine: "whisper",
+    workerType: "auto",
+    worker_path: undefined, // 未设置时使用 python stt_worker/main.py
     plugin: "whisper",
     webspeech: { language: "zh-CN", port: 18765, openBrowser: true },
     vad: {
@@ -116,6 +138,18 @@ export function loadConfig(path: string): Config {
     stt: {
       ...DEFAULTS.stt,
       ...(raw.stt ?? {}),
+      engine: raw.stt?.engine ?? DEFAULTS.stt.engine,
+      workerType: raw.stt?.workerType ?? DEFAULTS.stt.workerType,
+      workerPath: raw.stt?.workerPath ?? raw.stt?.worker_path ?? DEFAULTS.stt.workerPath,
+      worker_path: raw.stt?.worker_path ?? DEFAULTS.stt.worker_path,
+      pythonPath: raw.stt?.pythonPath ?? raw.stt?.python_path,
+      fallback: raw.stt?.fallback,
+      cloud: raw.stt?.cloud ? {
+        provider: raw.stt.cloud.provider,
+        apiKey: raw.stt.cloud.apiKey,
+        endpoint: raw.stt.cloud.endpoint,
+        region: raw.stt.cloud.region,
+      } : undefined,
       webspeech: {
         ...DEFAULTS.stt.webspeech,
         ...(raw.stt?.webspeech ?? {}),
