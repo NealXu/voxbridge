@@ -208,25 +208,26 @@ test("End 键应忽略", () => {
 test("左箭头移动光标位置", () => {
   // 初始状态：buffer="hello", cursor=5（末尾）
   const result = processEditKey("hello", Buffer.from([0x1b, 0x5b, 0x44]), false, 5);
-  assert.deepEqual(result, { buffer: "hello", action: "continue", hasEdited: false, cursor: 4 }, "光标应移动到位置 4");
+  // 修复：方向键应该设置 hasEdited=true，这样后续输入会插入而非替换
+  assert.deepEqual(result, { buffer: "hello", action: "continue", hasEdited: true, cursor: 4 }, "光标应移动到位置 4，且 hasEdited 应为 true");
 });
 
 test("右箭头在末尾无效果", () => {
-  // 光标已在末尾，右箭头无效
+  // 光标已在末尾，右箭头无效，但 hasEdited 应变为 true（用户主动操作了光标）
   const result = processEditKey("hello", Buffer.from([0x1b, 0x5b, 0x43]), false, 5);
-  assert.deepEqual(result, { buffer: "hello", action: "continue", hasEdited: false, cursor: 5 }, "光标应保持在位置 5");
+  assert.deepEqual(result, { buffer: "hello", action: "continue", hasEdited: true, cursor: 5 }, "光标应保持在位置 5，hasEdited 应为 true");
 });
 
 test("右箭头移动光标向右", () => {
   // 光标在位置 2，右箭头移动到 3
   const result = processEditKey("hello", Buffer.from([0x1b, 0x5b, 0x43]), false, 2);
-  assert.deepEqual(result, { buffer: "hello", action: "continue", hasEdited: false, cursor: 3 }, "光标应移动到位置 3");
+  assert.deepEqual(result, { buffer: "hello", action: "continue", hasEdited: true, cursor: 3 }, "光标应移动到位置 3，hasEdited 应为 true");
 });
 
 test("左箭头在开头无效果", () => {
-  // 光标已在开头，左箭头无效
+  // 光标已在开头，左箭头无效，但 hasEdited 应变为 true（用户主动操作了光标）
   const result = processEditKey("hello", Buffer.from([0x1b, 0x5b, 0x44]), false, 0);
-  assert.deepEqual(result, { buffer: "hello", action: "continue", hasEdited: false, cursor: 0 }, "光标应保持在位置 0");
+  assert.deepEqual(result, { buffer: "hello", action: "continue", hasEdited: true, cursor: 0 }, "光标应保持在位置 0，hasEdited 应为 true");
 });
 
 test("退格删除光标前字符（非仅末尾）", () => {
@@ -249,7 +250,7 @@ test("字符插入到光标位置", () => {
 test("中文光标移动正确", () => {
   // "你好世界"，光标从 4 移动到 3
   const result = processEditKey("你好世界", Buffer.from([0x1b, 0x5b, 0x44]), false, 4);
-  assert.deepEqual(result, { buffer: "你好世界", action: "continue", hasEdited: false, cursor: 3 }, "中文光标应正确移动");
+  assert.deepEqual(result, { buffer: "你好世界", action: "continue", hasEdited: true, cursor: 3 }, "中文光标应正确移动，hasEdited 应为 true");
 });
 
 test("中文退格删除正确", () => {
@@ -283,12 +284,58 @@ test("中文字符右箭头正确移动", () => {
   // "你好世界" 光标从 2 右移到 3
   const result = processEditKey("你好世界", Buffer.from([0x1b, 0x5b, 0x43]), false, 2);
   assert.equal(result.cursor, 3, "中文光标应正确右移");
+  assert.equal(result.hasEdited, true, "方向键应设置 hasEdited=true");
 });
 
 test("中文字符左箭头正确移动", () => {
   // "你好世界" 光标从 2 左移到 1
   const result = processEditKey("你好世界", Buffer.from([0x1b, 0x5b, 0x44]), false, 2);
   assert.equal(result.cursor, 1, "中文光标应正确左移");
+  assert.equal(result.hasEdited, true, "方向键应设置 hasEdited=true");
+});
+
+// ============================================
+// 核心 Bug 修复：方向键移动后输入应插入而非替换
+// ============================================
+
+test("【BUG FIX】方向键左移后输入应在光标位置插入，而非替换整个 buffer", () => {
+  // 场景：用户看到 "你好，世界。" 光标在末尾（位置 7）
+  // 步骤 1：按左箭头 2 次，光标移到 "。" 前面（位置 5）
+  const step1 = processEditKey("你好，世界。", Buffer.from([0x1b, 0x5b, 0x44]), false, 7);
+  assert.equal(step1.cursor, 6, "左箭头一次，光标到 6");
+  const step2 = processEditKey(step1.buffer, Buffer.from([0x1b, 0x5b, 0x44]), step1.hasEdited, step1.cursor);
+  assert.equal(step2.cursor, 5, "左箭头两次，光标到 5");
+
+  // 步骤 2：输入 "的"
+  const step3 = processEditKey(step2.buffer, Buffer.from("的"), step2.hasEdited, step2.cursor);
+  // 期望：在光标位置 5 插入 "的"，而不是替换整个 buffer
+  assert.equal(step3.buffer, "你好，世界的。", "应在位置 5 插入'的'，而非替换整个 buffer");
+  assert.equal(step3.cursor, 6, "光标应在插入字符之后");
+});
+
+test("【BUG FIX】方向键右移后输入应插入", () => {
+  // 光标在位置 2（"he" 之后），右移到 3，然后输入 "X"
+  const step1 = processEditKey("hello", Buffer.from([0x1b, 0x5b, 0x43]), false, 2);
+  assert.equal(step1.hasEdited, true, "方向键应设置 hasEdited");
+  const step2 = processEditKey(step1.buffer, Buffer.from("X"), step1.hasEdited, step1.cursor);
+  assert.equal(step2.buffer, "helXlo", "应在位置 3 插入 X");
+});
+
+test("【BUG FIX】用户的原始场景：在句号前插入'的'", () => {
+  // 显示 1："你好，世界。" 光标在末尾（位置 6）
+  // 用左箭头把光标移到 "。" 前面（位置 5）
+  const buffer = "你好，世界。";
+  const atEnd = { buffer, cursor: buffer.length, hasEdited: false };
+
+  // 左箭头移到 "。" 前（位置 5）
+  const moved = processEditKey(atEnd.buffer, Buffer.from([0x1b, 0x5b, 0x44]), atEnd.hasEdited, atEnd.cursor);
+  assert.equal(moved.cursor, 5, "光标移到位置 5（'。'前）");
+  assert.equal(moved.hasEdited, true, "hasEdited 应为 true");
+
+  // 输入 "的" → 期望 "你好，世界的。"
+  const typed = processEditKey(moved.buffer, Buffer.from("的"), moved.hasEdited, moved.cursor);
+  assert.equal(typed.buffer, "你好，世界的。", "应在光标位置插入'的'");
+  assert.equal(typed.cursor, 6, "光标应在'的'之后");
 });
 
 // ============================================

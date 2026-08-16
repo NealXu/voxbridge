@@ -128,7 +128,7 @@ class TestSenseVoiceOnnxEngine:
         from stt_worker.engines.base import EngineState
 
         mock_recognizer = MagicMock()
-        mock_recognizer_class.return_value = mock_recognizer
+        mock_recognizer_class.from_sense_voice.return_value = mock_recognizer
 
         engine = SenseVoiceOnnxEngine({"model_dir": "/fake/path"})
 
@@ -146,7 +146,7 @@ class TestSenseVoiceOnnxEngine:
         """Should transcribe using sherpa-onnx."""
         from stt_worker.engines.sensevoice.onnx_engine import SenseVoiceOnnxEngine
 
-        # Setup mocks
+        # Setup mocks - use from_sense_voice factory method (sherpa-onnx >= 1.10)
         mock_recognizer = MagicMock()
         mock_stream = MagicMock()
         mock_result = MagicMock()
@@ -154,7 +154,7 @@ class TestSenseVoiceOnnxEngine:
         mock_stream.result = mock_result
 
         mock_recognizer.create_stream.return_value = mock_stream
-        mock_recognizer_class.return_value = mock_recognizer
+        mock_recognizer_class.from_sense_voice.return_value = mock_recognizer
 
         engine = SenseVoiceOnnxEngine({"model_dir": "/fake/path"})
 
@@ -190,7 +190,7 @@ class TestSenseVoiceOnnxEngine:
         from stt_worker.engines.base import EngineState
 
         mock_recognizer = MagicMock()
-        mock_recognizer_class.return_value = mock_recognizer
+        mock_recognizer_class.from_sense_voice.return_value = mock_recognizer
 
         engine = SenseVoiceOnnxEngine({"model_dir": "/fake/path"})
 
