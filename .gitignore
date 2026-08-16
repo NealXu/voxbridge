@@ -12,3 +12,6 @@ config.local.json
 
 # Worktree 隔离目录
 .worktrees/
+
+# 实施计划（本地规划，完成后提炼到 docs/features/）
+docs/superpowers/
