@@ -12,6 +12,7 @@ import { homedir } from "os";
 import { join } from "path";
 import { createLoggerFromConfig } from "./logger/factory.js";
 import type { Logger } from "./logger/index.js";
+import { DirectorySessionManager } from "./session/directorySessionManager.js";
 
 /** ANSI 颜色常量（用于状态显示） */
 const RESET = "\x1b[0m";
@@ -49,18 +50,32 @@ let stt = createSttClient(config.stt, process.cwd(), {
 });
 const costTracker = new CostTracker();
 
-// CC Executor: 通过 SDK 启动并控制本地 Claude Code 实例。
-const executor: ClaudeExecutor = createClaudeExecutor({
-  logger: console,
-  claudePath: config.claude?.path,
-  settingsPath: config.claude?.settingsPath,
-  model: config.claude?.model,
-});
+// Session manager: persistent or ephemeral based on config
+let sessionManager: DirectorySessionManager | undefined;
+let executor: ClaudeExecutor | undefined;
+
+if (config.executor?.persistent) {
+  sessionManager = new DirectorySessionManager(config);
+  log.info("using persistent session manager", {
+    idleTimeoutMs: config.executor.idleTimeoutMs,
+    maxConcurrent: config.executor.maxConcurrent,
+  });
+} else {
+  executor = createClaudeExecutor({
+    logger: console,
+    claudePath: config.claude?.path,
+    settingsPath: config.claude?.settingsPath,
+    model: config.claude?.model,
+  });
+  log.info("using ephemeral executor");
+}
+
 const session = createAgentSession({
   config,
   cwd: process.cwd(),
   sessionFile: SESSION_FILE,
   executor,
+  sessionManager,
   logger: rootLogger,
   callbacks: {
     onTextDelta: (t) => ui.printAssistantDelta(t),
@@ -202,6 +217,9 @@ process.on("SIGINT", async () => {
   log.info("SIGINT received, shutting down");
   trigger?.stop();
   try {
+    if (sessionManager) {
+      await sessionManager.shutdown();
+    }
     await stt.dispose();
     await rootLogger.flush();
     await rootLogger.close();

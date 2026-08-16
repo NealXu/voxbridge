@@ -6,12 +6,16 @@ import type { AgentSession, SendResult, SessionCallbacks } from "./types.js";
 import { isDangerousTool } from "./dangerousTools.js";
 import { loadSession, saveSessionId, clearSessionId } from "./persistSession.js";
 import type { Logger } from "../logger/index.js";
+import { DirectorySessionManager } from "./directorySessionManager.js";
+import { PersistentClaudeExecutor } from "../executor/persistentExecutor.js";
 
 export interface AgentSessionOptions {
   config: Config;
   cwd: string;
   callbacks: SessionCallbacks;
   executor?: ClaudeExecutor;
+  /** Persistent session manager (alternative to executor) */
+  sessionManager?: DirectorySessionManager;
   sessionFile?: string;
   logger?: Logger;
 }
@@ -39,9 +43,92 @@ function isResumeFailure(msg: SDKMessage): boolean {
 
 export function createAgentSession(opts: AgentSessionOptions): AgentSession {
   const { config, cwd, callbacks } = opts;
-  const executor = opts.executor ?? new ClaudeExecutor();
-  const sessionFile = opts.sessionFile;
   const log = opts.logger?.child("session");
+
+  // If sessionManager is provided, use persistent mode
+  if (opts.sessionManager) {
+    return createPersistentSession(opts.sessionManager, config, callbacks, log);
+  }
+
+  // Otherwise, use ephemeral mode (existing behavior)
+  return createEphemeralSession(opts, cwd, callbacks, log);
+}
+
+/**
+ * Persistent session using DirectorySessionManager.
+ */
+function createPersistentSession(
+  sessionManager: DirectorySessionManager,
+  config: Config,
+  callbacks: SessionCallbacks,
+  log?: Logger,
+): AgentSession {
+  return {
+    async send(prompt: string): Promise<SendResult> {
+      callbacks.onStatus("sending");
+      try {
+        const entry = await sessionManager.acquire();
+        // Cast to PersistentClaudeExecutor to access nextTurn
+        const executor = entry.executor as PersistentClaudeExecutor;
+        const turn = executor.nextTurn(prompt);
+        const processor = new StreamProcessor({ userPrompt: prompt });
+
+        let sessionId: string | undefined;
+
+        for await (const msg of turn.stream) {
+          const state = processor.processMessage(msg as SDKMessage);
+          const processorSessionId = processor.getSessionId();
+          if (processorSessionId) {
+            sessionId = processorSessionId;
+          }
+          handleCallbacks(msg as SDKMessage, callbacks, config);
+
+          if (state.status === "complete") {
+            callbacks.onStatus("idle");
+            callbacks.onCompletion?.({
+              durationMs: state.durationMs ?? 0,
+              costUsd: state.costUsd,
+              turns: state.toolCalls.length,
+            });
+            await sessionManager.release("turn complete");
+            return { ok: true, sessionId: sessionId ?? "" };
+          }
+
+          if (state.status === "error") {
+            callbacks.onStatus("error");
+            await sessionManager.release("turn error");
+            return { ok: false, error: state.errorMessage ?? "Unknown error" };
+          }
+        }
+
+        await sessionManager.release("stream ended");
+        callbacks.onStatus("error");
+        return { ok: false, error: "unexpected end of stream" };
+      } catch (err) {
+        callbacks.onStatus("error");
+        const errMsg = err instanceof Error ? err.message : String(err);
+        log?.error("send threw", { error: errMsg });
+        return { ok: false, error: errMsg };
+      }
+    },
+
+    reset(): void {
+      log?.info("session reset");
+    },
+  };
+}
+
+/**
+ * Ephemeral session using ClaudeExecutor (original behavior).
+ */
+function createEphemeralSession(
+  opts: AgentSessionOptions,
+  cwd: string,
+  callbacks: SessionCallbacks,
+  log?: Logger,
+): AgentSession {
+  const { config, sessionFile } = opts;
+  const executor = opts.executor ?? new ClaudeExecutor();
 
   // Load persisted sessionId at startup — 使用 loadSession 检查过期
   let lastSessionId: string | undefined;
