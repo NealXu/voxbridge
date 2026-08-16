@@ -61,23 +61,27 @@ class SenseVoiceOnnxEngine(EngineBase):
 
             model_dir = Path(self._config["model_dir"])
 
-            # Find model files
-            model_files = list(model_dir.glob("*.onnx"))
-            if not model_files:
-                raise FileNotFoundError(f"No ONNX model found in {model_dir}")
+            # Find model files - prefer int8 (smaller/faster) if available
+            int8_model = model_dir / "model.int8.onnx"
+            if int8_model.exists():
+                model_file = int8_model
+            else:
+                model_files = list(model_dir.glob("*.onnx"))
+                if not model_files:
+                    raise FileNotFoundError(f"No ONNX model found in {model_dir}")
+                model_file = model_files[0]
 
-            model_file = model_files[0]
             tokens_file = model_dir / "tokens.txt"
 
             if not tokens_file.exists():
                 raise FileNotFoundError(f"tokens.txt not found in {model_dir}")
 
-            self._recognizer = sherpa_onnx.OfflineRecognizer(
+            # Use factory method (sherpa-onnx >= 1.10)
+            self._recognizer = sherpa_onnx.OfflineRecognizer.from_sense_voice(
                 model=str(model_file),
                 tokens=str(tokens_file),
+                use_itn=self._config.get("use_itn", True),
                 num_threads=self._config.get("num_threads", 4),
-                sample_rate=16000,
-                decoding_method="greedy_search",
             )
 
             self._state = EngineState.READY

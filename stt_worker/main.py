@@ -287,7 +287,7 @@ def main() -> None:
         import sys as _sys
         if getattr(_sys, 'frozen', False) and not args.engine.endswith('-onnx'):
             onnx_name = args.engine + '-onnx'
-            logger.info(f"Primary engine failed, trying ONNX fallback: {onnx_name}")
+            emit({"type": "info", "message": f"Primary engine failed, trying ONNX fallback: {onnx_name}"})
             success, message = factory.initialize(onnx_name, config=engine_config)
         if not success:
             emit({"type": "error", "message": f"Failed to initialize engine: {message}"})

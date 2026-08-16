@@ -5,16 +5,23 @@ $ErrorActionPreference = "Stop"
 
 Write-Host "=== Building VoxBridge with PyInstaller ===" -ForegroundColor Green
 
+# Use virtual environment Python if available
+$pythonExe = "python"
+if (Test-Path ".venv\Scripts\python.exe") {
+    $pythonExe = ".venv\Scripts\python.exe"
+    Write-Host "Using venv Python: $pythonExe" -ForegroundColor Cyan
+}
+
 # Check PyInstaller is installed
-python -m pip show pyinstaller | Out-Null
+& $pythonExe -m pip show pyinstaller | Out-Null
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Installing PyInstaller..." -ForegroundColor Yellow
-    python -m pip install pyinstaller
+    & $pythonExe -m pip install pyinstaller
 }
 
 # Build command
 $buildCmd = @(
-    "python", "-m", "PyInstaller",
+    $pythonExe, "-m", "PyInstaller",
     "--onefile",
     "--name", "voxbridge-asr",
     "--add-data", "stt_worker/models;stt_worker/models",
@@ -33,6 +40,7 @@ $buildCmd = @(
     "--hidden-import", "stt_worker.engines.config",
     "--hidden-import", "stt_worker.engines.base",
     "--hidden-import", "stt_worker.engines.factory",
+    "--collect-all", "sherpa_onnx",
     "--distpath", "dist",
     "--workpath", "build",
     "--noconfirm",
