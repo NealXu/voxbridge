@@ -13,7 +13,7 @@ import numpy as np
 from stt_worker.protocol import decode, encode
 from stt_worker.recorder import Recorder
 from stt_worker.vad import has_voice, get_vad, SAMPLE_RATE
-from stt_worker.whisper_engine import WhisperEngine
+from stt_worker.engines.factory import EngineFactory, EngineRegistry
 
 
 def emit(msg: dict) -> None:
@@ -126,6 +126,9 @@ def main() -> None:
     # 唤醒词参数（可选）
     parser.add_argument("--wake-word", type=str, default=None,
                         help="启用唤醒词模式（如 '你好小助'）")
+    # Engine selection parameters
+    parser.add_argument("--engine", type=str, default="whisper",
+                        help="STT engine to use (whisper, sensevoice, paraformer)")
     args = parser.parse_args()
 
     # 应用 VAD 参数到 vad 模块的全局常量（在 get_vad() 调用前）
@@ -143,9 +146,26 @@ def main() -> None:
     if args.vad_endpoint_silence_ms is not None:
         vad_module.ENDPOINT_SILENCE_MS = args.vad_endpoint_silence_ms
 
-    # 启动时一次性加载 Whisper 模型（首次数秒、数 GB 内存），加载完成才发 ready。
-    engine = WhisperEngine(args.model_dir)
-    engine.load()
+    # Auto-discover and register engines
+    EngineRegistry.discover_engines()
+
+    # Create engine factory and initialize with selected engine
+    engine_config = {
+        "model_dir": args.model_dir,
+        "model": args.model,
+        "language": args.language,
+    }
+    factory = EngineFactory(engine_config)
+
+    success, message = factory.initialize(args.engine, config=engine_config)
+    if not success:
+        emit({"type": "error", "message": f"Failed to initialize engine: {message}"})
+        sys.exit(1)
+
+    engine = factory.get_engine()
+    if engine is None:
+        emit({"type": "error", "message": "Engine not available"})
+        sys.exit(1)
 
     # 预加载 VAD 模型（silero-vad 或能量阈值 fallback）
     vad = get_vad()
@@ -188,9 +208,9 @@ def main() -> None:
                     # 空录音 / 无有效语音（静音或短促噪声）→ 不识别，回 noise。
                     emit({"type": "noise"})
                 else:
-                    text, duration_ms = engine.transcribe(audio, language=args.language)
-                    if text:
-                        emit({"type": "result", "text": text, "duration_ms": duration_ms})
+                    result = engine.transcribe(audio, language=args.language)
+                    if result.text:
+                        emit({"type": "result", "text": result.text, "duration_ms": result.duration_ms})
                     else:
                         emit({"type": "noise"})
             elif msg["type"] == "quit":
