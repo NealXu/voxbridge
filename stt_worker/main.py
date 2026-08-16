@@ -235,6 +235,8 @@ def main() -> None:
     # Engine selection parameters
     parser.add_argument("--engine", type=str, default="whisper",
                         help="STT engine to use (whisper, sensevoice, paraformer)")
+    parser.add_argument("--fallback", type=str, default=None,
+                        help="Fallback engine if primary fails (whisper, sensevoice, paraformer)")
     # Standalone mode parameters
     parser.add_argument("--standalone", action="store_true",
                         help="Run in standalone mode (transcribe audio file)")
@@ -281,7 +283,7 @@ def main() -> None:
     }
     factory = EngineFactory(engine_config)
 
-    success, message = factory.initialize(args.engine, config=engine_config)
+    success, message = factory.initialize(args.engine, config=engine_config, fallback=args.fallback)
     if not success:
         # 冻结环境下自动回退到 ONNX 引擎
         import sys as _sys

@@ -1,7 +1,9 @@
 {
   "stt": {
-    "model": "large-v3",
-    "model_dir": "D:\\Models\\faster-whisper-large-v3",
+    "engine": "sensevoice-onnx",
+    "model": "sensevoice-onnx",
+    "model_dir": "D:\\Models\\sensevoice-onnx",
+    "fallback": "whisper",
     "language": "zh",
     "python_path": ".venv\\Scripts\\python.exe",
     "plugin": "whisper",

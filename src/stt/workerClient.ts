@@ -160,6 +160,10 @@ export class WorkerSttClient implements SttClient {
     const args = [
       "stt_worker/main.py", "--model", stt.model, "--model-dir", stt.model_dir, "--language", stt.language,
     ];
+    // 引擎参数（可选）— 透传给 Python worker 选择 STT 引擎
+    if (stt.engine) args.push("--engine", stt.engine);
+    // 备用引擎参数（可选）— 主引擎失败时自动切换
+    if (stt.fallback) args.push("--fallback", stt.fallback);
     // VAD 参数（可选）— 透传给 Python worker，允许运行时调优
     const vad = stt.vad;
     if (vad) {

@@ -27,9 +27,16 @@ test("退格键对空文本无效果", () => {
   assert.deepEqual(result, { buffer: "", action: "continue", hasEdited: false, cursor: 0 });
 });
 
-test("第一次输入替换原有内容", () => {
-  const result = processEditKey("hello", Buffer.from("world"), false);
-  assert.deepEqual(result, { buffer: "world", action: "continue", hasEdited: true, cursor: 5 });
+test("第一次输入应插入到光标位置（而非替换）", () => {
+  // 新行为：第一次输入也插入到光标位置，符合用户直觉
+  // 如果用户想替换整个文本，可以先按 Ctrl+U 清空
+  const result = processEditKey("hello", Buffer.from("X"), false, 5);
+  assert.deepEqual(result, { buffer: "helloX", action: "continue", hasEdited: true, cursor: 6 }, "第一次输入应追加到末尾");
+});
+
+test("第一次输入在开头应插入到开头", () => {
+  const result = processEditKey("hello", Buffer.from("X"), false, 0);
+  assert.deepEqual(result, { buffer: "Xhello", action: "continue", hasEdited: true, cursor: 1 }, "在开头输入应插入到开头");
 });
 
 test("后续输入追加到缓冲区", () => {
@@ -37,9 +44,9 @@ test("后续输入追加到缓冲区", () => {
   assert.deepEqual(result, { buffer: "hello world", action: "continue", hasEdited: true, cursor: 11 });
 });
 
-test("中文字符替换", () => {
-  const result = processEditKey("旧内容", Buffer.from("新"), false);
-  assert.deepEqual(result, { buffer: "新", action: "continue", hasEdited: true, cursor: 1 });
+test("中文字符插入（光标在末尾）", () => {
+  const result = processEditKey("旧内容", Buffer.from("新"), false, 3);
+  assert.deepEqual(result, { buffer: "旧内容新", action: "continue", hasEdited: true, cursor: 4 }, "应在末尾插入");
 });
 
 test("中文字符追加（已编辑）", () => {
@@ -336,6 +343,53 @@ test("【BUG FIX】用户的原始场景：在句号前插入'的'", () => {
   const typed = processEditKey(moved.buffer, Buffer.from("的"), moved.hasEdited, moved.cursor);
   assert.equal(typed.buffer, "你好，世界的。", "应在光标位置插入'的'");
   assert.equal(typed.cursor, 6, "光标应在'的'之后");
+});
+
+test("【复现 Bug】介绍蜡笔小新场景：光标在末尾直接输入应追加", () => {
+  // 用户看到 "介绍蜡笔小新。" 光标在末尾
+  // 直接输入 "的"，应该追加到末尾，而非替换
+  const buffer = "介绍蜡笔小新。";
+  const result = processEditKey(buffer, Buffer.from("的"), false, buffer.length);
+  // 新行为：追加到末尾
+  assert.equal(result.buffer, "介绍蜡笔小新。的", "第一次输入应追加到末尾");
+});
+
+test("【复现 Bug】介绍蜡笔小新场景：左箭头后输入应插入", () => {
+  // 用户看到 "介绍蜡笔小新。" 光标在末尾（位置 7）
+  // 按左箭头 1 次，光标到位置 6（在 "。" 前面）
+  // 输入 "的"，期望 "介绍蜡笔小新的。"
+  const buffer = "介绍蜡笔小新。";
+
+  // 初始状态：光标在末尾
+  const initial = { buffer, cursor: buffer.length, hasEdited: false };
+  assert.equal(initial.cursor, 7, "初始光标在位置 7（末尾）");
+
+  // 左箭头 1 次
+  const afterArrow = processEditKey(initial.buffer, Buffer.from([0x1b, 0x5b, 0x44]), initial.hasEdited, initial.cursor);
+  assert.equal(afterArrow.cursor, 6, "左箭头后光标到位置 6");
+  assert.equal(afterArrow.hasEdited, true, "hasEdited 应为 true");
+
+  // 输入 "的"
+  const afterType = processEditKey(afterArrow.buffer, Buffer.from("的"), afterArrow.hasEdited, afterArrow.cursor);
+  assert.equal(afterType.buffer, "介绍蜡笔小新的。", "应在位置 6 插入'的'");
+  assert.equal(afterType.cursor, 7, "光标应在'的'之后");
+});
+
+test("其他终端箭头键格式：ESC O D (左箭头)", () => {
+  // 某些终端发送 ESC O D 而不是 ESC [ D
+  const buffer = "介绍蜡笔小新。";
+  const result = processEditKey(buffer, Buffer.from([0x1b, 0x4f, 0x44]), false, 7);
+  // 应该识别为左箭头，设置 hasEdited=true
+  assert.equal(result.hasEdited, true, "ESC O D 应设置 hasEdited=true");
+  assert.equal(result.cursor, 6, "光标应左移");
+});
+
+test("其他终端箭头键格式：ESC O C (右箭头)", () => {
+  // 某些终端发送 ESC O C 而不是 ESC [ C
+  const buffer = "介绍蜡笔小新。";
+  const result = processEditKey(buffer, Buffer.from([0x1b, 0x4f, 0x43]), false, 6);
+  assert.equal(result.hasEdited, true, "ESC O C 应设置 hasEdited=true");
+  assert.equal(result.cursor, 7, "光标应右移");
 });
 
 // ============================================

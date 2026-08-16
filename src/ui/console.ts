@@ -168,12 +168,12 @@ export function processEditKey(
     return { buffer: "", action: "continue", hasEdited: true, cursor: 0 };
   }
 
-  // Arrow keys: CSI sequences ESC [ A/B/C/D
-  // 上箭头 ESC [ A (0x1b 0x5b 0x41) - 忽略（未来可用于历史）
-  // 下箭头 ESC [ B (0x1b 0x5b 0x42) - 忽略
-  // 右箭头 ESC [ C (0x1b 0x5b 0x43) - 光标右移
-  // 左箭头 ESC [ D (0x1b 0x5b 0x44) - 光标左移
-  if (chunk.length >= 3 && chunk[0] === 0x1b && chunk[1] === 0x5b) {
+  // Arrow keys: CSI sequences ESC [ A/B/C/D or ESC O A/B/C/D
+  // 上箭头 ESC [ A (0x1b 0x5b 0x41) 或 ESC O A (0x1b 0x4f 0x41) - 忽略（未来可用于历史）
+  // 下箭头 ESC [ B (0x1b 0x5b 0x42) 或 ESC O B (0x1b 0x4f 0x42) - 忽略
+  // 右箭头 ESC [ C (0x1b 0x5b 0x43) 或 ESC O C (0x1b 0x4f 0x43) - 光标右移
+  // 左箭头 ESC [ D (0x1b 0x5b 0x44) 或 ESC O D (0x1b 0x4f 0x44) - 光标左移
+  if (chunk.length >= 3 && chunk[0] === 0x1b && (chunk[1] === 0x5b || chunk[1] === 0x4f)) {
     const dir = chunk[2];
     if (dir === 0x44) { // 左箭头 D
       const newCursor = Math.max(0, currentCursor - 1);
@@ -204,17 +204,10 @@ export function processEditKey(
     // Filter out control characters but keep printable chars including unicode
     const printable = text.replace(/[\x00-\x1f\x7f-\x9f]/g, "");
     if (printable.length > 0) {
-      let newBuffer: string;
-      let newCursor: number;
-      if (!hasEdited) {
-        // 第一次输入：替换整个内容
-        newBuffer = printable;
-        newCursor = printable.length;
-      } else {
-        // 后续输入：插入到光标位置
-        newBuffer = buffer.slice(0, currentCursor) + printable + buffer.slice(currentCursor);
-        newCursor = currentCursor + printable.length;
-      }
+      // 始终在光标位置插入（移除"第一次输入替换"的反直觉行为）
+      // 如果用户想替换整个文本，可以先按 Ctrl+U 清空
+      const newBuffer = buffer.slice(0, currentCursor) + printable + buffer.slice(currentCursor);
+      const newCursor = currentCursor + printable.length;
       return { buffer: newBuffer, action: "continue", hasEdited: true, cursor: newCursor };
     }
   }
