@@ -34,6 +34,14 @@ export class ExeWorkerClient extends WorkerSttClient {
     const exePath = resolveExePath(stt.workerPath ?? stt.worker_path, cwd);
     const args = buildExeArgs(stt);
 
+    options?.logger?.info("spawning exe worker", {
+      exePath,
+      engine: stt.engine ?? "whisper",
+      modelDir: stt.model_dir,
+      args: args.join(" "),
+      cwd
+    });
+
     const child = spawn(exePath, args, {
       cwd,
       stdio: ["pipe", "pipe", "pipe"],
