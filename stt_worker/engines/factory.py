@@ -79,24 +79,82 @@ class EngineRegistry:
         """Auto-discover and register engines from subdirectories.
 
         Scans the engines/ directory for subdirectories containing
-        engine.py files and registers them.
+        engine.py files and registers them. Also registers onnx_engine
+        variants with "-onnx" suffix.
+
+        Supports both development (filesystem) and frozen (PyInstaller) modes.
         """
+        import sys
+
         engines_dir = Path(__file__).parent
+
+        # 冻结环境（PyInstaller）：目录可能在 _MEI 临时目录
+        # 如果 iterdir 失败，回退到直接 import
+        if getattr(sys, 'frozen', False):
+            cls._discover_frozen_engines()
+            return
+
+        if not engines_dir.is_dir():
+            cls._discover_frozen_engines()
+            return
+
         for engine_dir in engines_dir.iterdir():
             if not engine_dir.is_dir():
                 continue
             if engine_dir.name.startswith("_"):
                 continue
 
+            # 注册主引擎 (engine.py)
             engine_file = engine_dir / "engine.py"
-            if not engine_file.exists():
-                continue
+            if engine_file.exists():
+                module_name = f"stt_worker.engines.{engine_dir.name}.engine"
+                try:
+                    module = importlib.import_module(module_name)
+                    for attr_name in dir(module):
+                        attr = getattr(module, attr_name)
+                        if (
+                            isinstance(attr, type)
+                            and issubclass(attr, EngineBase)
+                            and attr is not EngineBase
+                            and attr_name.endswith("Engine")
+                        ):
+                            cls.register(attr)
+                            break
+                except Exception as e:
+                    logger.warning(f"Failed to load engine from {module_name}: {e}")
 
-            # Import the engine module
-            module_name = f"stt_worker.engines.{engine_dir.name}.engine"
+            # 注册 ONNX 引擎 (onnx_engine.py)，使用 "-onnx" 后缀
+            onnx_file = engine_dir / "onnx_engine.py"
+            if onnx_file.exists():
+                onnx_module_name = f"stt_worker.engines.{engine_dir.name}.onnx_engine"
+                try:
+                    onnx_module = importlib.import_module(onnx_module_name)
+                    for attr_name in dir(onnx_module):
+                        attr = getattr(onnx_module, attr_name)
+                        if (
+                            isinstance(attr, type)
+                            and issubclass(attr, EngineBase)
+                            and attr is not EngineBase
+                            and attr_name.endswith("Engine")
+                        ):
+                            cls.register(attr)
+                            break
+                except Exception as e:
+                    logger.warning(f"Failed to load ONNX engine from {onnx_module_name}: {e}")
+
+    @classmethod
+    def _discover_frozen_engines(cls) -> None:
+        """Register engines via direct imports (for frozen/PyInstaller environments)."""
+        frozen_modules = [
+            ("stt_worker.engines.whisper.engine", None),
+            ("stt_worker.engines.sensevoice.engine", None),
+            ("stt_worker.engines.sensevoice.onnx_engine", None),
+            ("stt_worker.engines.paraformer.engine", None),
+            ("stt_worker.engines.dummy.engine", None),
+        ]
+        for module_name, _ in frozen_modules:
             try:
                 module = importlib.import_module(module_name)
-                # Find engine class (convention: class name ends with "Engine")
                 for attr_name in dir(module):
                     attr = getattr(module, attr_name)
                     if (
@@ -108,7 +166,7 @@ class EngineRegistry:
                         cls.register(attr)
                         break
             except Exception as e:
-                logger.warning(f"Failed to load engine from {module_name}: {e}")
+                logger.debug(f"Skipped frozen engine {module_name}: {e}")
 
 
 class EngineFactory:

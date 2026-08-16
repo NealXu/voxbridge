@@ -283,8 +283,15 @@ def main() -> None:
 
     success, message = factory.initialize(args.engine, config=engine_config)
     if not success:
-        emit({"type": "error", "message": f"Failed to initialize engine: {message}"})
-        sys.exit(1)
+        # 冻结环境下自动回退到 ONNX 引擎
+        import sys as _sys
+        if getattr(_sys, 'frozen', False) and not args.engine.endswith('-onnx'):
+            onnx_name = args.engine + '-onnx'
+            logger.info(f"Primary engine failed, trying ONNX fallback: {onnx_name}")
+            success, message = factory.initialize(onnx_name, config=engine_config)
+        if not success:
+            emit({"type": "error", "message": f"Failed to initialize engine: {message}"})
+            sys.exit(1)
 
     engine = factory.get_engine()
     if engine is None:
