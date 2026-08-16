@@ -282,7 +282,7 @@ A: 编辑 `~/.claude/settings.json` 的 env 块：
 ## 8. 运行测试
 
 ```bash
-# Node 测试（81 个）
+# Node 测试（347 个）
 npm test
 
 # Python 测试（32 个 + 2 跳过）

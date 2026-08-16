@@ -1,6 +1,5 @@
 # VAD 参数调优指南
-
-> P3-3：silero-vad 延迟 / 准确率权衡，参数�?`config.json` 一路透传�?Python worker�?
+> ~~P3-3~~ ✅ — silero-vad 延迟 / 准确率权衡，参数从 `config.json` 一路透传到 Python worker。
 
 ## 数据�?
 
