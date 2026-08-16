@@ -1,13 +1,13 @@
 # VoxBridge 用户指南
 
-- **日期**：2026-08-14
-- **版本**：0.2.0
+- **日期**：2026-08-16
+- **版本**：0.3.0
 
 ---
 
 ## 1. 项目简介
 
-VoxBridge 是一个语音驱动的 Claude Code CLI。你只需按住 F9 说话，本地 Whisper 将语音转为文本，再经 claude-agent-sdk 启动并控制本地 Claude Code 实例执行（v0.2.0 架构）——因此具备完整编码能力（读写文件、运行命令、调试、Agent Teams 并行协作）。全程静默，无语音回复。
+VoxBridge 是一个语音驱动的 Claude Code CLI。你只需按住 F9 说话，本地语音引擎（默认 SenseVoice ONNX，支持 fallback 到 Whisper）将语音转为文本，再经 claude-agent-sdk 启动并控制本地 Claude Code 实例执行——因此具备完整编码能力（读写文件、运行命令、调试、Agent Teams 并行协作）。全程静默，无语音回复。
 
 **一句话**：用嘴说话代替打字，让 Claude Code 帮你写代码。
 
@@ -20,7 +20,7 @@ VoxBridge 是一个语音驱动的 Claude Code CLI。你只需按住 F9 说话�
 | 操作系统 | Windows 11 |
 | Node.js | ≥ 20（推荐 v24+） |
 | Python | 3.12+ |
-| 磁盘空间 | ~3GB（Whisper 模型） |
+| 磁盘空间 | ~150MB（SenseVoice ONNX）或 ~3GB（Whisper） |
 | 网络 | 首次下载模型 + 调用 AI API |
 | 硬件 | 麦克风（笔记本自带或外接） |
 | API 凭证 | 已配置 `~/.claude/settings.json` 的 env 块 |
@@ -159,8 +159,10 @@ npm start
   // ─── 语音识别 ───
   "stt": {
     "plugin": "whisper",            // "whisper"（本地）| "webspeech"（浏览器）
-    "model": "large-v3",            // 模型档位（large-v3 / medium / small / base）
-    "model_dir": "D:\\Models\\faster-whisper-large-v3",
+    "engine": "sensevoice-onnx",    // 主引擎：whisper / sensevoice-onnx / paraformer
+    "fallback": "whisper",          // 备用引擎（主引擎失败时自动切换）
+    "model": "sensevoice-onnx",     // 模型标识（引擎相关）
+    "model_dir": "D:\\Models\\sensevoice-onnx",  // 模型目录
     "language": "zh",               // 识别语言
     "python_path": ".venv\\Scripts\\python.exe",
     "webspeech": {                   // Web Speech 插件配置
@@ -219,13 +221,49 @@ npm start
 | 终端切换 | `global: false` | 终端内按 F9 切换开/关 | 无原生模块依赖 |
 | 唤醒词 | `wakeWord.enabled: true` | 说唤醒词即开始 | 免手操作（需接线） |
 
-### 6.2 会话管理
+### 6.2 STT 引擎配置
+
+VoxBridge 支持多种语音识别引擎，并具备主备自动切换能力。
+
+**可用引擎：**
+
+| 引擎 | 名称 | 特点 | 模型大小 | 适用场景 |
+|---|---|---|---|---|
+| SenseVoice ONNX | `sensevoice-onnx` | 阿里 SenseVoice，ONNX 推理，中文优化 | ~150MB | 默认推荐，适合打包部署 |
+| Whisper | `whisper` | faster-whisper，多语言通用 | large-v3: ~3GB | 备用引擎，成熟稳定 |
+
+**配置示例：**
+
+```jsonc
+{
+  "stt": {
+    "engine": "sensevoice-onnx",    // 主引擎
+    "fallback": "whisper",          // 备用引擎（主引擎失败时自动切换）
+    "model_dir": "D:\\Models\\sensevoice-onnx"
+  }
+}
+```
+
+**Fallback 机制：**
+
+当主引擎加载失败时，系统自动尝试备用引擎：
+
+1. 尝试加载 `sensevoice-onnx`
+2. 如果失败，自动切换到 `whisper`
+3. 如果都失败，报告错误并退出
+
+**模型目录：**
+
+- SenseVoice ONNX: 需包含 `model.int8.onnx` 和 `tokens.txt`
+- Whisper: 首次运行自动下载到配置的 `model_dir`
+
+### 6.3 会话管理
 
 - **自动续接**：`agent.resume: true` 时，每次启动自动续接上次会话
 - **会话持久化**：session ID 保存在 `~/.voxbridge-session.json`
 - **新建会话**：删除 `~/.voxbridge-session.json` 后重启
 
-### 6.3 团队协作（Agent Teams）
+### 6.4 团队协作（Agent Teams）
 
 直接对着麦克风说：**「创建一个 5 人团队，帮我并行重构项目」**。VoxBridge 会创建一支队友团队，把任务拆成多块并行推进，每个队友独立工作、互不阻塞。
 
@@ -254,7 +292,13 @@ npm start
 ## 7. 常见问题
 
 ### Q: 启动后一直显示「正在初始化」？
-A: 模型加载需要 10-40 秒（取决于磁盘速度）。首次启动还需下载 3GB 模型。
+A: 模型加载需要 3-10 秒（SenseVoice ONNX）或 10-40 秒（Whisper，取决于磁盘速度）。首次启动还需下载模型。
+
+### Q: 如何选择 STT 引擎？
+A: 推荐使用默认配置（SenseVoice ONNX 主引擎 + Whisper 备用）。SenseVoice ONNX 对中文优化更好、体积小、加载快；Whisper 作为备用更稳定。
+
+### Q: 引擎加载失败怎么办？
+A: 检查 `model_dir` 配置是否正确，模型文件是否完整。系统会自动尝试备用引擎。如果都失败，查看日志中的错误信息。
 
 ### Q: 按 F9 没反应？
 A: 检查麦克风是否可用。VoxBridge 启动时会检测音频设备，如果无设备会报错。

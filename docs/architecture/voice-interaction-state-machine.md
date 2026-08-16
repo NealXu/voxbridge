@@ -1,5 +1,7 @@
 # 语音交互状态机
 
+**最后更新**：2026-08-16
+
 ## 状态图
 
 ```
@@ -106,8 +108,28 @@
 | Enter | 0x0d / 0x0a | 确认发送 |
 | Esc | 0x1b | 取消 |
 | Ctrl+U | 0x15 | 清空缓冲区 |
-| Backspace | 0x7f / 0x08 | 删除末字符 |
-| 可打印字符 | - | 首次替换，后续追加 |
+| Backspace | 0x7f / 0x08 | 删除光标前字符 |
+| 可打印字符 | - | 在光标位置插入 |
+| 左箭头 | ESC [ D / ESC O D | 光标左移 |
+| 右箭头 | ESC [ C / ESC O C | 光标右移 |
+
+**光标编辑行为（v2.1 更新）：**
+
+- **始终插入**：输入字符始终在光标位置插入，不再有"首次输入替换"的反直觉行为
+- **方向键支持**：支持两种格式的方向键序列
+  - CSI 格式：`ESC [ A/B/C/D`（大多数终端）
+  - SS3 格式：`ESC O A/B/C/D`（部分终端如 xterm）
+- **移动后插入**：方向键移动光标后，后续输入自动插入到新位置（`hasEdited` 自动设为 true）
+
+**示例场景：**
+
+```
+初始状态："你好，世界。" 光标在末尾（位置 6）
+1. 按左箭头 → 光标移到位置 5（"。" 前）
+2. 输入 "的" → 结果："你好，世界的。" （插入而非替换）
+
+如果想替换整个文本，可先按 Ctrl+U 清空，再输入新内容。
+```
 
 ## 实现要点
 
@@ -129,13 +151,18 @@
 | 按键 | 字节序列 | 是否取消 | 说明 |
 |------|---------|---------|------|
 | Esc | `1b` | ✓ 取消 | 单字节 ESC |
-| 上箭头 | `1b 5b 41` | ✗ 忽略 | ESC[A 序列 |
-| 下箭头 | `1b 5b 42` | ✗ 忽略 | ESC[B 序列 |
-| 左箭头 | `1b 5b 44` | ✗ 忽略 | ESC[D 序列 |
-| 右箭头 | `1b 5b 43` | ✗ 忽略 | ESC[C 序列 |
+| 上箭头 | `1b 5b 41` / `1b 4f 41` | ✗ 忽略 | ESC[A 或 ESC OA（SS3） |
+| 下箭头 | `1b 5b 42` / `1b 4f 42` | ✗ 忽略 | ESC[B 或 ESC OB（SS3） |
+| 左箭头 | `1b 5b 44` / `1b 4f 44` | ✗ 忽略 | ESC[D 或 ESC OD（SS3），光标左移 |
+| 右箭头 | `1b 5b 43` / `1b 4f 43` | ✗ 忽略 | ESC[C 或 ESC OC（SS3），光标右移 |
 | Home | `1b 5b 48` | ✗ 忽略 | ESC[H 序列 |
 | End | `1b 5b 46` | ✗ 忽略 | ESC[F 序列 |
 | F1-F12 | `1b 4f xx` | ✗ 忽略 | 功能键序列 |
+
+**SS3 格式支持（v2.1 新增）：**
+
+部分终端（如 xterm、某些 SSH 客户端）发送方向键时使用 SS3 格式（`ESC O A/B/C/D`），
+而非常见的 CSI 格式（`ESC [ A/B/C/D`）。VoxBridge 现已同时支持两种格式。
 
 ### 实现要点
 
@@ -145,6 +172,22 @@
 if (chunk.length === 1 && chunk[0] === 0x1b) {
   return { buffer: "", action: "cancel", hasEdited: false };
 }
+
+// 同时支持 CSI (ESC [) 和 SS3 (ESC O) 格式的方向键
+if (chunk.length >= 3 && chunk[0] === 0x1b && (chunk[1] === 0x5b || chunk[1] === 0x4f)) {
+  const dir = chunk[2];
+  if (dir === 0x44) { // 左箭头
+    const newCursor = Math.max(0, currentCursor - 1);
+    // 方向键操作后设置 hasEdited=true，后续输入会插入而非替换
+    return { buffer, action: "continue", hasEdited: true, cursor: newCursor };
+  }
+  // ...
+}
+
+// 输入字符：始终在光标位置插入（移除"首次替换"行为）
+const newBuffer = buffer.slice(0, currentCursor) + printable + buffer.slice(currentCursor);
+const newCursor = currentCursor + printable.length;
+return { buffer: newBuffer, action: "continue", hasEdited: true, cursor: newCursor };
 ```
 
 ## 历史记录显示

@@ -1,7 +1,7 @@
 # VoxBridge 架构文档
 
-- **日期**：2026-08-14
-- **版本**：v2.0
+- **日期**：2026-08-16
+- **版本**：v2.1
 - **状态**：✅ 已实施（P0–P4 全部完成，254 测试通过 + 2 跳过；详见 `implementation-plan.md` §12）
 
 ---
@@ -180,11 +180,46 @@ VoxBridge 采用**多进程架构**：Node.js 主进程作为语音控制器，�
 | **入口** | `stt_worker/main.py` | stdio JSONL 协议循环 |
 | **录音** | `stt_worker/recorder.py` | sounddevice 采集 PCM |
 | **端点检测** | `stt_worker/vad.py` | silero-vad / 能量阈值 fallback |
-| **识别引擎** | `stt_worker/whisper_engine.py` | faster-whisper 封装 |
+| **引擎工厂** | `stt_worker/engines/factory.py` | 引擎注册、创建、fallback 管理 |
+| **引擎基类** | `stt_worker/engines/base.py` | 抽象引擎接口 |
+| **Whisper 引擎** | `stt_worker/engines/whisper/engine.py` | faster-whisper 封装 |
+| **SenseVoice 引擎** | `stt_worker/engines/sensevoice/onnx_engine.py` | sherpa-onnx ONNX 推理 |
 | **设备检测** | `stt_worker/device.py` | 启动时检查麦克风可用性 |
 | **模型下载** | `stt_worker/model_download.py` | 自动下载缺失模型 |
 | **唤醒词** | `stt_worker/wakeword.py` | 唤醒词匹配 |
 | **协议** | `stt_worker/protocol.py` | JSONL 编解码 |
+
+**多引擎架构：**
+
+STT Worker 采用可插拔引擎架构，支持多种语音识别引擎：
+
+| 引擎 | 名称 | 特点 | 模型大小 |
+|---|---|---|---|
+| **Whisper** | `whisper` | faster-whisper，CPU/GPU 通用 | large-v3: ~3GB |
+| **SenseVoice ONNX** | `sensevoice-onnx` | 阿里 SenseVoice，ONNX 推理，适合打包部署 | ~150MB |
+| **Paraformer** | `paraformer` | 阿里 Paraformer（开发中） | - |
+| **Dummy** | `dummy` | 测试用模拟引擎 | - |
+
+**Fallback 机制：**
+
+当主引擎加载失败时，自动切换到备用引擎：
+
+```
+启动流程：
+  Node ── spawn worker (engine=sensevoice-onnx, fallback=whisper) ──→ Python
+                                                                    │
+  Python ── EngineFactory.initialize(engine, fallback)              │
+          ├─ 尝试加载主引擎 (sensevoice-onnx)                        │
+          │  └─ 成功 → 使用主引擎                                     │
+          │  └─ 失败 → 尝试备用引擎 (whisper)                          │
+          │            └─ 成功 → 发送 ready (engine=fallback)         │
+          │            └─ 失败 → 发送 error 并退出                    │
+          └─ 发送 ready 事件，包含引擎名称和能力声明                    │
+```
+
+**当前默认配置：**
+- 主引擎：`sensevoice-onnx`（阿里 SenseVoice，ONNX 推理）
+- 备用引擎：`whisper`（faster-whisper large-v3）
 
 ---
 
@@ -203,7 +238,9 @@ Node → Python（命令）：
   {"type": "quit"}         退出 worker
 
 Python → Node（事件）：
-  {"type": "ready"}        worker 初始化完成
+  {"type": "ready",        worker 初始化完成
+   "engine": "sensevoice-onnx",       当前使用的引擎
+   "capabilities": {...}}             引擎能力声明
   {"type": "recording"}    录音已开始
   {"type": "result",       识别成功
    "text": "...",
@@ -339,15 +376,19 @@ CC → Node（流式事件）：
   Python 3.12 ───────── STT Worker
   Claude Code CLI ───── cc 二进制（npm install -g @anthropic-ai/claude-code 或官方安装）
   .venv/ ────────────── Python 虚拟环境
-    ├── faster-whisper    语音识别引擎
+    ├── sherpa-onnx       ONNX 推理（SenseVoice）
+    ├── faster-whisper    语音识别引擎（备用）
     ├── sounddevice       麦克风采样
     ├── numpy             音频数据处理
     ├── onnxruntime       silero-vad 推理（可选）
     └── huggingface_hub   模型下载
 
 模型文件：
-  D:\Models\faster-whisper-large-v3\
-    └── model.bin (3.08 GB)
+  D:\Models\sensevoice-onnx\           （主引擎，~150MB）
+    ├── model.int8.onnx                （量化模型，推荐）
+    └── tokens.txt                     （词表）
+  D:\Models\faster-whisper-large-v3\   （备用引擎，~3GB）
+    └── model.bin
   stt_worker/models/
     └── silero_vad.onnx（可选 ~2MB）
 
@@ -458,6 +499,10 @@ API Token            只存 ~/.claude/settings.json
 │                                                │
 │ WorkerSttClient:                               │
 │   spawnFor() ── spawn python 子进程            │
+│     ├─ 透传 --engine <name>（引擎选择）        │
+│     ├─ 透传 --fallback <name>（备用引擎）      │
+│     ├─ 透传 --vad-*（VAD 参数）                │
+│     └─ 透传 --wake-word（唤醒词）              │
 │   start()    ── 发 {"type":"start"}            │
 │   stop()     ── 发 {"type":"stop"} → Promise   │
 │   cancel()   ── 丢弃当前录音                   │
@@ -1070,11 +1115,21 @@ VoxBridge/
 │  ├── main.py                   入口 (JSONL 循环)
 │  ├── recorder.py               录音 (sounddevice)
 │  ├── vad.py                    端点检测（silero/能量）
-│  ├── whisper_engine.py         Whisper 封装
 │  ├── device.py                 设备检测
 │  ├── model_download.py         模型下载
 │  ├── wakeword.py               唤醒词匹配
 │  ├── protocol.py               JSONL 编解码
+│  ├── engines/                  引擎目录（可插拔架构）
+│  │  ├── base.py               引擎基类 + 数据结构
+│  │  ├── config.py             引擎配置 schema
+│  │  ├── factory.py            引擎工厂 + 注册表 + Fallback
+│  │  ├── whisper/              Whisper 引擎
+│  │  │  └── engine.py          faster-whisper 封装
+│  │  ├── sensevoice/           SenseVoice 引擎
+│  │  │  ├── engine.py          FunASR 版本（开发中）
+│  │  │  └── onnx_engine.py     ONNX 版本（默认使用）
+│  │  ├── paraformer/           Paraformer 引擎（开发中）
+│  │  └── dummy/                测试用模拟引擎
 │  └── models/                   模型目录 (silero-vad)
 │
 ├── tests/                        测试（20 文件，254 pass + 2 skip）
@@ -1116,8 +1171,9 @@ VoxBridge/
 | 进程模型 | 多进程（Node + Python + CC） | SDK 绑定 Node；Whisper 绑定 Python；CC 提供完整 coding 能力 |
 | CC 控制方式 | SDK 模式 (query + spawn) | 流式输出、会话续接、工具链，参考 metabot 验证 |
 | 通信协议 | JSONL over stdio | 无需端口/守护进程，崩溃可检测，日志可旁路 |
-| 语音识别 | faster-whisper (本地) | 中文质量最优，隐私安全，无网络延迟 |
-| 模型 | large-v3 (3GB) | 中文准确率最佳，推理性能够用 |
+| 语音识别 | 多引擎架构 + Fallback | SenseVoice ONNX 中文优化，Whisper 备用保证稳定性 |
+| 默认引擎 | SenseVoice ONNX | 中文识别质量优、体积小（~150MB）、加载快（3-5s） |
+| 备用引擎 | Whisper large-v3 | 成熟稳定、多语言支持、作为 fallback 兜底 |
 | 触发方式 | 全局热键 (node-global-key-listener) | F9 冲突面小，任意窗口可用 |
 | TTS | 不做 | 编码回复长，屏幕看更清楚 |
 | 权限模型 | bypassPermissions | 继承 Claude Code 行为，语音交互不适合逐次确认 |
@@ -1125,8 +1181,16 @@ VoxBridge/
 | 进程管理 | ExecutorRegistry 进程池 | 支持 Agent Teams、后台任务，空闲超时回收 |
 | Agent Teams | 支持（≤10 队友） | 并行编码协作，in-process 模式 |
 | UI 显示 | 完整版 | 工具调用 + 文件变更 + 成本 + 队友面板 |
+| 光标编辑 | 始终插入模式 | 移除"首次输入替换"反直觉行为，符合用户预期 |
 
-### 13.1 已确认决策（2026-08-14）
+### 13.1 已确认决策（2026-08-16）
+
+| 决策 | 结论 | 影响 |
+|---|---|---|
+| **STT 引擎 Fallback** | 需要 | 主引擎失败自动切换，提高稳定性 |
+| **默认引擎切换** | SenseVoice ONNX | 中文识别优化、体积小、加载快 |
+| **光标编辑行为** | 始终插入 | 移除"首次替换"，方向键移动后输入自动插入 |
+| **SS3 方向键支持** | 需要 | 兼容更多终端（xterm、SSH 客户端等） |
 
 | 决策 | 结论 | 影响 |
 |---|---|---|
