@@ -9,3 +9,6 @@ config.local.json
 # 含 API token 的本地设置，永不入库
 .claude/
 .superpowers/
+
+# Worktree 隔离目录
+.worktrees/
