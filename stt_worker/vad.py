@@ -161,7 +161,7 @@ class SileroVAD:
 
             # 如果任何块的语音概率超过阈值，认为有语音
             max_prob = max(speech_probs) if speech_probs else 0
-            return max_prob > threshold
+            return bool(max_prob > threshold)
 
         except Exception as e:
             logger.warning(f"VAD inference error: {e}. Using energy fallback.")

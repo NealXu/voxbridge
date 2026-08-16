@@ -1,5 +1,6 @@
 """STT worker 入口：读 stdin JSONL，控制录音与识别，写 stdout JSONL。"""
 import argparse
+import json
 import os
 import sys
 import threading
@@ -10,16 +11,89 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
-from stt_worker.protocol import decode, encode
+from stt_worker.protocol import decode, encode, EventType, WorkerCapabilities
 from stt_worker.recorder import Recorder
 from stt_worker.vad import has_voice, get_vad, SAMPLE_RATE
-from stt_worker.whisper_engine import WhisperEngine
+from stt_worker.engines.factory import EngineFactory, EngineRegistry
+from stt_worker.engines.base import EngineState
 
 
 def emit(msg: dict) -> None:
     """向 stdout 发送一条 JSONL 消息并立即冲刷。"""
     sys.stdout.write(encode(msg))
     sys.stdout.flush()
+
+
+def run_standalone(args) -> None:
+    """独立模式: 直接转录音频文件
+
+    Args:
+        args: 命令行参数
+    """
+    import soundfile as sf
+
+    # 加载音频
+    try:
+        audio, sr = sf.read(args.audio_input)
+    except Exception as e:
+        print(f"Error loading audio file: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # 转换采样率到 16kHz
+    if sr != 16000:
+        try:
+            import librosa
+            audio = librosa.resample(audio, orig_sr=sr, target_sr=16000)
+        except ImportError:
+            print("Error: librosa required for resampling. Install with: pip install librosa", file=sys.stderr)
+            sys.exit(1)
+
+    # 确保是单声道
+    if len(audio.shape) > 1:
+        audio = audio[:, 0]
+
+    # 初始化引擎
+    EngineRegistry.discover_engines()
+    factory = EngineFactory({
+        "model_dir": args.model_dir,
+        "model": args.model,
+        "language": args.language,
+    })
+
+    success, message = factory.initialize(args.engine)
+    if not success:
+        print(f"Error: {message}", file=sys.stderr)
+        sys.exit(1)
+
+    engine = factory.get_engine()
+    if engine is None:
+        print("Error: Engine not available", file=sys.stderr)
+        sys.exit(1)
+
+    # 执行转录
+    try:
+        result = engine.transcribe(audio.astype(np.float32), language=args.language)
+    except Exception as e:
+        print(f"Transcription error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # 输出结果
+    if args.output_format == "json":
+        output = {
+            "text": result.text,
+            "duration_ms": result.duration_ms,
+            "language": result.language,
+        }
+        if result.segments:
+            output["segments"] = [
+                {"start": s.get("start"), "end": s.get("end"), "text": s.get("text")}
+                for s in result.segments
+            ]
+        if result.confidence is not None:
+            output["confidence"] = result.confidence
+        print(json.dumps(output, ensure_ascii=False, indent=2))
+    else:
+        print(result.text)
 
 
 def _force_utf8(stream) -> None:
@@ -101,6 +175,38 @@ def run_wake_loop(recorder: Recorder, wake_word: str, model_dir: str, language: 
                 voice_duration_ms = 0
 
 
+def get_engine_capabilities(engine, has_wake_word: bool = False) -> WorkerCapabilities:
+    """从引擎获取能力信息
+
+    Args:
+        engine: STT 引擎实例
+        has_wake_word: 是否启用唤醒词
+
+    Returns:
+        WorkerCapabilities 实例
+    """
+    try:
+        info = engine.get_info()
+        # 确保值为正确类型（处理 mock 对象等边缘情况）
+        streaming = bool(info.supports_streaming) if hasattr(info, "supports_streaming") else False
+        languages = list(info.supported_languages) if hasattr(info, "supported_languages") else ["zh"]
+        confidence = bool(info.supports_confidence) if hasattr(info, "supports_confidence") else False
+        word_timestamps = bool(info.supports_word_timestamps) if hasattr(info, "supports_word_timestamps") else False
+    except Exception:
+        streaming = False
+        languages = ["zh"]
+        confidence = False
+        word_timestamps = False
+
+    return WorkerCapabilities(
+        streaming=streaming,
+        wake_word=has_wake_word,
+        languages=languages,
+        confidence=confidence,
+        word_timestamps=word_timestamps,
+    )
+
+
 def main() -> None:
     # 管道安全：Node 以 UTF-8 读取 worker 输出（见 _force_utf8）。
     _force_utf8(sys.stdout)
@@ -126,6 +232,16 @@ def main() -> None:
     # 唤醒词参数（可选）
     parser.add_argument("--wake-word", type=str, default=None,
                         help="启用唤醒词模式（如 '你好小助'）")
+    # Engine selection parameters
+    parser.add_argument("--engine", type=str, default="whisper",
+                        help="STT engine to use (whisper, sensevoice, paraformer)")
+    # Standalone mode parameters
+    parser.add_argument("--standalone", action="store_true",
+                        help="Run in standalone mode (transcribe audio file)")
+    parser.add_argument("--audio-input", type=str,
+                        help="Audio file path for standalone mode")
+    parser.add_argument("--output-format", choices=["json", "text"], default="json",
+                        help="Output format for standalone mode")
     args = parser.parse_args()
 
     # 应用 VAD 参数到 vad 模块的全局常量（在 get_vad() 调用前）
@@ -143,16 +259,60 @@ def main() -> None:
     if args.vad_endpoint_silence_ms is not None:
         vad_module.ENDPOINT_SILENCE_MS = args.vad_endpoint_silence_ms
 
-    # 启动时一次性加载 Whisper 模型（首次数秒、数 GB 内存），加载完成才发 ready。
-    engine = WhisperEngine(args.model_dir)
-    engine.load()
+    # 检查运行模式
+    if args.standalone:
+        if not args.audio_input:
+            print("Error: --audio-input required in standalone mode", file=sys.stderr)
+            sys.exit(1)
+        run_standalone(args)
+        return
+
+    # 否则进入 worker 模式
+    # ... worker mode implementation
+
+    # Auto-discover and register engines
+    EngineRegistry.discover_engines()
+
+    # Create engine factory and initialize with selected engine
+    engine_config = {
+        "model_dir": args.model_dir,
+        "model": args.model,
+        "language": args.language,
+    }
+    factory = EngineFactory(engine_config)
+
+    success, message = factory.initialize(args.engine, config=engine_config)
+    if not success:
+        # 冻结环境下自动回退到 ONNX 引擎
+        import sys as _sys
+        if getattr(_sys, 'frozen', False) and not args.engine.endswith('-onnx'):
+            onnx_name = args.engine + '-onnx'
+            emit({"type": "info", "message": f"Primary engine failed, trying ONNX fallback: {onnx_name}"})
+            success, message = factory.initialize(onnx_name, config=engine_config)
+        if not success:
+            emit({"type": "error", "message": f"Failed to initialize engine: {message}"})
+            sys.exit(1)
+
+    engine = factory.get_engine()
+    if engine is None:
+        emit({"type": "error", "message": "Engine not available"})
+        sys.exit(1)
+
+    # 获取引擎能力
+    capabilities = get_engine_capabilities(engine, bool(args.wake_word))
 
     # 预加载 VAD 模型（silero-vad 或能量阈值 fallback）
     vad = get_vad()
-    if vad._model_loaded:
-        emit({"type": "ready", "vad": "silero", "wakeWord": bool(args.wake_word)})
-    else:
-        emit({"type": "ready", "vad": "energy_threshold", "wakeWord": bool(args.wake_word)})
+    vad_type = "silero" if vad._model_loaded else "energy_threshold"
+
+    # 发送 ready 事件，包含能力声明
+    emit({
+        "type": "ready",
+        "engine": args.engine,
+        "capabilities": capabilities,
+        "vad": vad_type,
+        "wakeWord": bool(args.wake_word)
+    })
 
     # 唤醒词模式：启动后台识别线程
     if args.wake_word:
@@ -171,6 +331,22 @@ def main() -> None:
             continue
         try:
             msg = decode(line)
+
+            # 新增: init 命令处理
+            if msg["type"] == "init":
+                # 运行时配置更新（可选）
+                config = msg.get("config", {})
+                if config.get("engine") and config["engine"] != args.engine:
+                    # TODO: 实现运行时引擎切换
+                    emit({
+                        "type": "info",
+                        "message": f"Engine switch to {config['engine']} requested (not yet supported)"
+                    })
+                if config.get("language") and config["language"] != args.language:
+                    args.language = config["language"]
+                    emit({"type": "info", "message": f"Language changed to {config['language']}"})
+                continue
+
             if msg["type"] == "start":
                 # 防御：若上一个 start 未 stop，先关掉旧录音，避免录音流双开。
                 if recorder is not None:
@@ -188,9 +364,9 @@ def main() -> None:
                     # 空录音 / 无有效语音（静音或短促噪声）→ 不识别，回 noise。
                     emit({"type": "noise"})
                 else:
-                    text, duration_ms = engine.transcribe(audio, language=args.language)
-                    if text:
-                        emit({"type": "result", "text": text, "duration_ms": duration_ms})
+                    result = engine.transcribe(audio, language=args.language)
+                    if result.text:
+                        emit({"type": "result", "text": result.text, "duration_ms": result.duration_ms})
                     else:
                         emit({"type": "noise"})
             elif msg["type"] == "quit":

@@ -177,14 +177,15 @@ export function processEditKey(
     const dir = chunk[2];
     if (dir === 0x44) { // 左箭头 D
       const newCursor = Math.max(0, currentCursor - 1);
-      return { buffer, action: "continue", hasEdited, cursor: newCursor };
+      // 方向键操作后应设置 hasEdited=true，这样后续输入会插入而非替换
+      return { buffer, action: "continue", hasEdited: true, cursor: newCursor };
     }
     if (dir === 0x43) { // 右箭头 C
       const newCursor = Math.min(buffer.length, currentCursor + 1);
-      return { buffer, action: "continue", hasEdited, cursor: newCursor };
+      return { buffer, action: "continue", hasEdited: true, cursor: newCursor };
     }
-    // 上/下箭头或其他：忽略
-    return { buffer, action: "continue", hasEdited, cursor: currentCursor };
+    // 上/下箭头或其他：忽略，但设置 hasEdited（用户主动操作了光标）
+    return { buffer, action: "continue", hasEdited: true, cursor: currentCursor };
   }
 
   // Backspace: DEL (0x7f) or BS (0x08) - 删除光标前字符
