@@ -1,0 +1,44 @@
+# EditorConfig - 强制 UTF-8 编码，防止乱码
+# https://editorconfig.org
+
+root = true
+
+# 所有文件的默认设置
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Markdown 文件可能需要保留尾部空格（换行语法）
+[*.md]
+trim_trailing_whitespace = false
+
+# TypeScript/JavaScript
+[*.{ts,tsx,js,jsx,mjs,cjs}]
+indent_style = space
+indent_size = 2
+
+# Python
+[*.py]
+indent_style = space
+indent_size = 4
+
+# JSON/YAML
+[*.{json,yaml,yml}]
+indent_style = space
+indent_size = 2
+
+# Shell scripts
+[*.sh]
+indent_style = space
+indent_size = 2
+
+# PowerShell
+[*.ps1]
+indent_style = space
+indent_size = 2
+
+# Git attributes 不需要换行转换
+[.gitattributes]
+end_of_line = lf
