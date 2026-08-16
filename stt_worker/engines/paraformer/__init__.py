@@ -1,4 +1,4 @@
 """Paraformer engine implementation."""
-from .engine import ParaformerEngine
+from .engine import ParaformerStreamingEngine
 
-__all__ = ["ParaformerEngine"]
+__all__ = ["ParaformerStreamingEngine"]
