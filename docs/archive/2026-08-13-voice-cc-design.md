@@ -1,4 +1,4 @@
-# Voice-CC：语音驱动 Claude Code CLI 设计文档
+# VoxBridge：语音驱动 Claude Code CLI 设计文档（已归档）
 
 - **日期**：2026-08-13
 - **状态**：已确认，待评审
@@ -28,7 +28,7 @@
 | 交互模式 | 语音输入 + 屏幕输出 | 编码回复长，屏幕看更清楚 |
 | STT 引擎 | 可插拔架构；一期本地 Whisper（faster-whisper），二期 Chrome Web Speech API | 预留扩展点 |
 | Whisper 后端 | 安装 Python + faster-whisper | 中文质量最好 |
-| Whisper 模型 | `large-v3`（约 1.5GB，中文准确率最佳） | 模型缓存存放 `D:\Models\` 下对应子目录 |
+| Whisper 模型 | `large-v3`（约 3.08GB，中文准确率最佳） | 模型缓存存放 `D:\Models\` 下对应子目录 |
 | 控制通道 | Claude Agent SDK（Node.js）独立会话 | 官方推荐的自定义 UI 方式，兼容 DeepSeek API 配置 |
 | 触发方式 | 一期 push-to-talk（热键 F9）；二期唤醒词（config 开关） | 触发模块可插拔 |
 | TTS | 不需要 | 全程静默 |
@@ -178,7 +178,7 @@ Python → Node:  {"type":"ready"}
 - Python 3.11+（需安装，`winget install Python.Python.3.12`）
 - Python 包：`faster-whisper`、`sounddevice`、`numpy`
 - npm 包：`@anthropic-ai/claude-agent-sdk`、`node-global-key-listener`
-- 模型：`Systran/faster-whisper-large-v3`（约 1.5GB，下载到 `D:\Models\faster-whisper-large-v3`）
+- 模型：`Systran/faster-whisper-large-v3`（约 3.08GB，下载到 `D:\Models\faster-whisper-large-v3`）
 
 ## 10. MVP 范围与二期
 
@@ -198,4 +198,4 @@ Node 主进程 + F9 push-to-talk + Python/Whisper worker + Agent SDK 会话 + �
 | large-v3 中文识别有 3-6s 延迟 | push-to-talk 下可接受；模型降级为 medium 作为备选配置 |
 | Windows 全局热键与系统/输入法冲突 | F9 冲突面小；触发键可配置 |
 | Agent SDK 对 DeepSeek 兼容性未知 | 规划阶段先做 SDK 最小冒烟测试（query 一条消息） |
-| 首次模型下载 1.5GB | 启动时进度条 + 断点续传（huggingface_hub 支持） |
+| 首次模型下载 3.08GB | 启动时进度条 + 断点续传（huggingface_hub 支持） |

@@ -1,6 +1,6 @@
 # ink TUI 模式
 
-> P3-1：基于 React 19 + ink 7.1.1 的富交互界面，替代默认 console UI。
+> ~~P3-1~~ ✅ — 基于 React 19 + ink 7.1.1 的富交互界面，替代默认 console UI。
 
 ## 架构
 
