@@ -17,3 +17,6 @@ config.local.json
 
 # 实施计划（本地规划，完成后提炼到 docs/features/）
 docs/superpowers/
+
+# 已归档的实施计划
+docs/archive/
